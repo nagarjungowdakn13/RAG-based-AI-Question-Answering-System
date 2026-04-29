@@ -24,6 +24,8 @@ from app.evaluation import metrics
 from app.pipeline.chunking import Chunk, chunk_documents
 from app.pipeline.ingestion import Document, load_documents
 from app.pipeline.vector_store import FaissVectorStore
+from app.retrieval.confidence import score_confidence
+from app.retrieval.hallucination import validate_grounding
 
 
 DOCS_DIR = Path("data/docs")
@@ -84,6 +86,44 @@ def test_api_key_protects_mutating_endpoints(monkeypatch):
 
     r = client.post("/evaluate", json=payload, headers={"X-API-Key": "secret"})
     assert r.status_code != 401
+
+
+def test_confidence_and_grounding_detect_supported_answer():
+    from app.pipeline.vector_store import RetrievalHit
+
+    hit = RetrievalHit(
+        score=0.8,
+        chunk_id="c1",
+        text="Arthur Samuel coined the term machine learning in 1959.",
+        metadata={"source": "machine_learning.txt"},
+    )
+    answer = "Arthur Samuel coined the term machine learning in 1959. [#1]"
+
+    conf = score_confidence(answer, [hit], retrieval_threshold=0.3)
+    grounding = validate_grounding(answer, [hit], min_coverage=0.35)
+
+    assert conf.score > 0.6
+    assert "context_coverage" in conf.explanation
+    assert grounding.supported is True
+
+
+def test_grounding_rejects_unsupported_answer():
+    from app.pipeline.vector_store import RetrievalHit
+
+    hit = RetrievalHit(
+        score=0.8,
+        chunk_id="c1",
+        text="RAG retrieves external context before answering.",
+        metadata={"source": "rag.txt"},
+    )
+    grounding = validate_grounding(
+        "The system was invented in Paris by Ada Lovelace in 1843. [#1]",
+        [hit],
+        min_coverage=0.35,
+    )
+
+    assert grounding.supported is False
+    assert grounding.unsupported_claims
 
 
 @pytest.mark.slow

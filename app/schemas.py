@@ -16,6 +16,8 @@ class IngestPathsRequest(BaseModel):
         description="Absolute or working-dir-relative paths to .txt/.md/.pdf files or directories.",
         min_length=1,
     )
+    chunk_size: int | None = Field(default=None, ge=100, le=4000)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=1000)
 
 
 class IngestResponse(BaseModel):
@@ -35,6 +37,7 @@ class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=20)
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    prompt_strategy: str | None = Field(default=None, pattern="^(strict|fallback)$")
 
 
 class SourceChunk(BaseModel):
@@ -50,6 +53,9 @@ class QueryResponse(BaseModel):
     answer: str
     confident: bool
     confidence_score: float
+    confidence_explanation: str | None = None
+    rejected: bool = False
+    rejection_reason: str | None = None
     sources: list[SourceChunk]
     metadata: dict[str, Any]
 
@@ -61,9 +67,14 @@ class EvaluateRequest(BaseModel):
     )
     top_k: int | None = None
     score_threshold: float | None = None
+    experiment_name: str | None = None
+    chunk_size: int | None = Field(default=None, ge=100, le=4000)
+    prompt_strategy: str | None = Field(default=None, pattern="^(strict|fallback)$")
 
 
 class EvaluateResponse(BaseModel):
     num_questions: int
     aggregate: dict[str, float]
     results_path: str
+    run_id: str | None = None
+    db_path: str | None = None

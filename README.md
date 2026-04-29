@@ -28,10 +28,11 @@ endpoints. No separate frontend build, no Node, no Docker.
   with source cards, one-click evaluation panel.
 - **Full pipeline**: ingestion → recursive chunking → embeddings → FAISS
   → top-k retrieval → strict-prompt generation.
-- **Hallucination reduction (3 layers)**:
+- **Hallucination reduction + detection (4 layers)**:
   1. retrieval confidence threshold — abstains *before* calling the LLM,
   2. strict system prompt — forces "I don't know" when context lacks the answer,
-  3. source attribution — every answer ships with chunk IDs, paths, scores.
+  3. source attribution — every answer ships with chunk IDs, paths, scores,
+  4. post-generation grounding check — unsupported claims are rejected.
 - **Evaluation framework**: exact match, semantic similarity (cosine on
   sentence-transformer embeddings), retrieval accuracy@k. Results stored
   as timestamped JSON.
@@ -67,6 +68,18 @@ endpoints. No separate frontend build, no Node, no Docker.
    └──────────────────────────────────────────────────────┘
 ```
 
+### Research-grade reliability upgrades
+
+The query path is now split into auditable stages:
+
+1. **Retrieval** returns top-k chunks and similarity scores only.
+2. **Generation** consumes only retrieved context through a selected prompt strategy.
+3. **Confidence scoring** combines retrieval strength, context coverage, and output heuristics.
+4. **Hallucination detection** rejects unsupported generated claims and returns the safe unknown answer.
+5. **Observability and evaluation** persist JSONL query traces, JSON eval reports, and SQLite eval rows for experiment comparison.
+
+This matters because reliable RAG should fail closed: weak retrieval, empty output, low grounding, or low confidence all produce `"I don't know based on the provided context."` with an explicit rejection reason.
+
 Module map:
 
 | Layer            | File                              | Responsibility                                      |
@@ -75,6 +88,10 @@ Module map:
 | Schemas          | `app/schemas.py`                  | Request/response Pydantic models                    |
 | Config           | `app/config.py`                   | Env-driven settings (`.env`)                        |
 | Logging          | `app/logger.py`                   | Rotating log + JSONL Q/A trace                      |
+| Prompt layer     | `app/generation/prompts.py`       | Strict/fallback prompt strategies                   |
+| Confidence       | `app/retrieval/confidence.py`     | Retrieval + coverage + output confidence            |
+| Grounding check  | `app/retrieval/hallucination.py`  | Unsupported-claim detection                         |
+| Observability    | `app/observability/query_trace.py`| Structured query traces                             |
 | Ingestion        | `app/pipeline/ingestion.py`       | Loads `.txt` / `.md` / `.pdf`                       |
 | Chunking         | `app/pipeline/chunking.py`        | Recursive character splitter                        |
 | Embeddings       | `app/pipeline/embeddings.py`      | HuggingFace / OpenAI behind a Protocol              |
@@ -84,6 +101,7 @@ Module map:
 | Orchestrator     | `app/pipeline/rag.py`             | Composition root + thread-safe singleton            |
 | Eval metrics     | `app/evaluation/metrics.py`       | EM, semantic sim, retrieval@k                       |
 | Eval runner      | `app/evaluation/evaluator.py`     | Runs QA file, persists JSON results                 |
+| Eval store       | `app/evaluation/store.py`         | SQLite run/item persistence                         |
 | CLI              | `run.py`                          | `ingest`, `query`, `evaluate`, `serve`              |
 
 ---
@@ -169,6 +187,13 @@ curl -X POST http://localhost:8000/ingest \
   -d '{"paths": ["data/docs"]}'
 ```
 
+For chunking experiments, override chunk settings per ingestion:
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["data/docs"], "chunk_size": 350, "chunk_overlap": 60}'
+```
+
 **Ingest via upload**:
 ```bash
 curl -X POST http://localhost:8000/ingest/upload \
@@ -180,7 +205,7 @@ curl -X POST http://localhost:8000/ingest/upload \
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{"question": "What is multi-head attention?", "top_k": 4}'
+  -d '{"question": "What is multi-head attention?", "top_k": 4, "prompt_strategy": "strict"}'
 ```
 
 Example response:
@@ -190,6 +215,9 @@ Example response:
   "answer": "Multi-head attention runs multiple attention heads in parallel, each focusing on different aspects of the input; outputs are concatenated and projected back to the model dimension. [#1]",
   "confident": true,
   "confidence_score": 0.69,
+  "confidence_explanation": "retrieval=1.00 (top_score=0.690), context_coverage=0.74, output_heuristics=0.90",
+  "rejected": false,
+  "rejection_reason": null,
   "sources": [
     {
       "rank": 1,
@@ -213,7 +241,23 @@ Example response:
 ```bash
 curl -X POST http://localhost:8000/evaluate \
   -H "Content-Type: application/json" \
-  -d '{"qa_path": "data/eval/qa_pairs.json"}'
+  -d '{"qa_path": "data/eval/qa_pairs.json", "experiment_name": "topk4-strict"}'
+```
+
+Example evaluation output:
+```json
+{
+  "num_questions": 10,
+  "aggregate": {
+    "exact_match": 0.1,
+    "semantic_similarity": 0.43,
+    "retrieval_accuracy": 0.9,
+    "answered": 0.9
+  },
+  "results_path": "storage/eval_results/eval-...json",
+  "run_id": "eval-...",
+  "db_path": "storage/eval_results/evaluations.sqlite3"
+}
 ```
 
 ---
@@ -233,10 +277,14 @@ All settings come from `.env` (see `.env.example`):
 | `CHUNK_SIZE`            | `500`                                        | Characters per chunk                                         |
 | `CHUNK_OVERLAP`         | `100`                                        | Overlap between adjacent chunks                              |
 | `TOP_K`                 | `4`                                          | Default top-k for retrieval                                  |
-| `SCORE_THRESHOLD`       | `0.30`                                       | Cosine threshold; below → "I don't know"                     |
+| `SCORE_THRESHOLD`       | `0.30`                                       | Cosine threshold; below -> "I don't know"                    |
+| `CONFIDENCE_THRESHOLD`  | `0.45`                                       | Combined final-answer confidence threshold                   |
+| `GROUNDING_MIN_COVERAGE`| `0.35`                                       | Minimum answer/context coverage before accepting output      |
+| `PROMPT_STRATEGY`       | `strict`                                     | `strict` or `fallback` prompt template                       |
 | `INDEX_DIR`             | `storage/faiss_index`                        | Where the FAISS index is persisted                           |
 | `LOG_DIR`               | `storage/logs`                               | App log + JSONL Q/A trace                                    |
 | `EVAL_DIR`              | `storage/eval_results`                       | Per-run evaluation JSON                                      |
+| `EVAL_DB_PATH`          | `storage/eval_results/evaluations.sqlite3`   | SQLite DB for evaluation run comparison                      |
 
 Both `top_k` and `score_threshold` can also be overridden per request.
 
@@ -256,6 +304,22 @@ Both `top_k` and `score_threshold` can also be overridden per request.
 3. **Source attribution.** Every response carries a `sources` array
    (rank, score, source path, chunk ID, snippet). The user can verify
    any claim against the actual passage.
+4. **Post-generation detection.** The answer is compared against the
+   retrieved context. If coverage is too low or sentence-level claims
+   are unsupported, the answer is rejected and replaced with the safe
+   unknown response.
+
+Example query flow:
+
+```text
+question
+  -> retrieve top-k chunks with similarity scores
+  -> generate using only retrieved context and a selected prompt strategy
+  -> score confidence from retrieval strength, context coverage, and output shape
+  -> validate grounding and reject unsupported claims
+  -> return answer, citations, confidence explanation, and rejection metadata
+  -> log latency, chunks, scores, confidence, rejection reason, and final answer
+```
 
 ---
 
@@ -279,6 +343,9 @@ Both `top_k` and `score_threshold` can also be overridden per request.
 Aggregate + per-question rows are persisted at
 `storage/eval_results/eval-<UTC-timestamp>.json` so you can diff runs
 across model / chunk-size / threshold changes.
+The same run is also stored in SQLite at
+`storage/eval_results/evaluations.sqlite3` with separate run and item
+tables for research comparison.
 
 ---
 

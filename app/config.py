@@ -38,11 +38,15 @@ class Settings(BaseSettings):
     # Retrieval
     top_k: int = Field(default=4, ge=1, le=50)
     score_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
+    confidence_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
+    grounding_min_coverage: float = Field(default=0.35, ge=0.0, le=1.0)
+    prompt_strategy: Literal["strict", "fallback"] = "strict"
 
     # Storage
     index_dir: Path = Path("storage/faiss_index")
     log_dir: Path = Path("storage/logs")
     eval_dir: Path = Path("storage/eval_results")
+    eval_db_path: Path = Path("storage/eval_results/evaluations.sqlite3")
 
     # Optional API protection. Leave blank for local/demo use.
     api_key: str = ""

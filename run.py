@@ -30,7 +30,12 @@ def _cmd_query(args) -> int:
     if rag.store.size == 0:
         print("Index is empty. Run `ingest` first.", file=sys.stderr)
         return 2
-    result = rag.query(args.question, top_k=args.top_k, score_threshold=args.threshold)
+    result = rag.query(
+        args.question,
+        top_k=args.top_k,
+        score_threshold=args.threshold,
+        prompt_strategy=args.prompt_strategy,
+    )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -38,7 +43,13 @@ def _cmd_query(args) -> int:
 def _cmd_evaluate(args) -> int:
     from app.evaluation.evaluator import evaluate
 
-    out = evaluate(args.qa_path, top_k=args.top_k, score_threshold=args.threshold)
+    out = evaluate(
+        args.qa_path,
+        top_k=args.top_k,
+        score_threshold=args.threshold,
+        experiment_name=args.experiment_name,
+        prompt_strategy=args.prompt_strategy,
+    )
     print(json.dumps(out, indent=2))
     return 0
 
@@ -64,12 +75,15 @@ def main() -> int:
     pq.add_argument("question")
     pq.add_argument("--top-k", type=int, default=None)
     pq.add_argument("--threshold", type=float, default=None)
+    pq.add_argument("--prompt-strategy", choices=["strict", "fallback"], default=None)
     pq.set_defaults(func=_cmd_query)
 
     pe = sub.add_parser("evaluate", help="Run evaluation against a QA file")
     pe.add_argument("--qa-path", default="data/eval/qa_pairs.json")
     pe.add_argument("--top-k", type=int, default=None)
     pe.add_argument("--threshold", type=float, default=None)
+    pe.add_argument("--experiment-name", default=None)
+    pe.add_argument("--prompt-strategy", choices=["strict", "fallback"], default=None)
     pe.set_defaults(func=_cmd_evaluate)
 
     ps = sub.add_parser("serve", help="Run the FastAPI server")

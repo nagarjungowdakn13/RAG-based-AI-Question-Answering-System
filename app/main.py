@@ -206,7 +206,9 @@ async def ingest_paths(req: IngestPathsRequest) -> IngestResponse:
             raise HTTPException(status_code=404, detail=f"Path not found: {raw}")
         resolved.append(str(r))
     try:
-        result = await asyncio.to_thread(rag.ingest, resolved)
+        result = await asyncio.to_thread(
+            rag.ingest, resolved, req.chunk_size, req.chunk_overlap
+        )
     except Exception as e:
         logger.exception("Ingestion failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -264,7 +266,7 @@ async def query(req: QueryRequest) -> QueryResponse:
         )
     try:
         result = await asyncio.to_thread(
-            rag.query, req.question, req.top_k, req.score_threshold
+            rag.query, req.question, req.top_k, req.score_threshold, req.prompt_strategy
         )
     except Exception as e:
         logger.exception("Query failed")
@@ -279,7 +281,13 @@ async def run_evaluation(req: EvaluateRequest) -> EvaluateResponse:
         raise HTTPException(status_code=404, detail=f"QA file not found: {req.qa_path}")
     try:
         result = await asyncio.to_thread(
-            evaluate, str(qa_path), req.top_k, req.score_threshold
+            evaluate,
+            str(qa_path),
+            req.top_k,
+            req.score_threshold,
+            req.experiment_name,
+            req.chunk_size,
+            req.prompt_strategy,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
