@@ -413,4 +413,4 @@ EMBEDDING_BACKEND=openai LLM_BACKEND=openai OPENAI_API_KEY=sk-... docker compose
 
 ![RAG QA Dashboard overview](docs/images/dashboard-overview.png)
 
-![RAG QA Dashboard question workspace](docs/images/dashboard-chat.png)
+
