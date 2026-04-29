@@ -1,0 +1,30 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# Embeddings + vector store
+# Pinned to a known-good combination that works with torch 2.2+.
+# If you hit "PyTorch >= 2.4 is required" or "name 'nn' is not defined":
+#   pip install --upgrade "transformers>=4.36,<4.45" "sentence-transformers>=2.7,<3.0"
+# (or upgrade torch:  pip install --upgrade torch)
+sentence-transformers>=2.7.0,<3.0.0
+transformers>=4.36.0,<4.45.0
+huggingface_hub>=0.20.0,<0.25.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0,<2.0.0
+
+# Chunking (LangChain text splitters only — no heavy LangChain deps)
+langchain-text-splitters>=0.0.1
+
+# Document loaders
+pypdf>=4.0.0
+
+# Optional: OpenAI for generation/embeddings
+openai>=1.12.0
+
+# Eval / utils
+scikit-learn>=1.3.0
+tqdm>=4.66.0

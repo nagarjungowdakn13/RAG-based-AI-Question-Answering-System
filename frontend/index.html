@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG QA Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🔍</span>
+      <div>
+        <h1>RAG QA Dashboard</h1>
+        <p class="tagline">Retrieval-Augmented Generation · grounded answers · live metrics</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div id="status-pill" class="pill pill-muted" title="System status">
+        <span class="dot"></span>
+        <span id="status-text">checking…</span>
+      </div>
+      <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+        <span id="theme-icon">☾</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="dashboard">
+
+    <!-- ─── KPI ROW ─── -->
+    <section class="kpi-row">
+      <div class="kpi" data-accent="indigo">
+        <div class="kpi-label">Indexed chunks</div>
+        <div class="kpi-value" id="kpi-chunks">–</div>
+        <div class="kpi-sub" id="kpi-docs">– documents</div>
+      </div>
+      <div class="kpi" data-accent="cyan">
+        <div class="kpi-label">Total queries</div>
+        <div class="kpi-value" id="kpi-queries">–</div>
+        <div class="kpi-sub"><span id="kpi-answered">–</span> answered · <span id="kpi-abstained">–</span> abstained</div>
+      </div>
+      <div class="kpi" data-accent="emerald">
+        <div class="kpi-label">Avg confidence</div>
+        <div class="kpi-value" id="kpi-confidence">–</div>
+        <div class="kpi-sub">across answered queries</div>
+      </div>
+      <div class="kpi" data-accent="violet">
+        <div class="kpi-label">Backends</div>
+        <div class="kpi-value kpi-small" id="kpi-backend">–</div>
+        <div class="kpi-sub" id="kpi-llm">–</div>
+      </div>
+    </section>
+
+    <!-- ─── CHART ROW ─── -->
+    <section class="charts-row">
+      <div class="card chart-card">
+        <div class="card-head">
+          <h2>Confidence distribution</h2>
+          <span class="hint">Score buckets · all queries</span>
+        </div>
+        <canvas id="chart-confidence" height="180"></canvas>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-head">
+          <h2>Query timeline · 24 h</h2>
+          <span class="hint">Hourly volume</span>
+        </div>
+        <canvas id="chart-timeline" height="180"></canvas>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-head">
+          <h2>Top cited sources</h2>
+          <span class="hint">Most retrieved</span>
+        </div>
+        <ul id="top-sources" class="source-rank">
+          <li class="empty-row">No queries yet</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ─── INTERACTION ROW ─── -->
+    <section id="dashboard-chat" class="interaction-row">
+
+      <!-- left column -->
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <h2>Ingest documents</h2>
+            <span class="hint">Add .txt, .md, .pdf to the FAISS index</span>
+          </div>
+          <div class="ingest-tabs">
+            <button class="tab active" data-tab="path">By path</button>
+            <button class="tab" data-tab="upload">Upload</button>
+          </div>
+          <div id="tab-path" class="tab-body">
+            <div class="row">
+              <input id="ingest-path" type="text" value="data/docs" />
+              <button id="ingest-path-btn" class="primary">Ingest</button>
+            </div>
+          </div>
+          <div id="tab-upload" class="tab-body hidden">
+            <label class="dropzone" id="dropzone">
+              <input id="file-input" type="file" multiple accept=".txt,.md,.pdf" hidden />
+              <div>
+                <strong>Click or drop files</strong>
+                <p class="hint">.txt / .md / .pdf</p>
+              </div>
+            </label>
+            <ul id="file-list" class="file-list"></ul>
+            <button id="ingest-upload-btn" class="primary" disabled>Upload &amp; ingest</button>
+          </div>
+          <div id="ingest-result" class="result hidden"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Run evaluation</h2>
+            <span class="hint">Score the system on a QA file</span>
+          </div>
+          <div class="row">
+            <input id="qa-path" type="text" value="data/eval/qa_pairs.json" />
+            <button id="evaluate-btn" class="primary">Run</button>
+          </div>
+          <div id="eval-summary" class="result hidden"></div>
+          <canvas id="chart-eval" height="160" class="hidden"></canvas>
+        </div>
+      </div>
+
+      <!-- center: chat -->
+      <div class="card chat-card">
+        <div class="card-head">
+          <h2>Ask a question</h2>
+          <span class="hint">Each answer cites sources · low-confidence queries abstain</span>
+        </div>
+
+        <div id="chat" class="chat" aria-live="polite">
+          <div class="empty">
+            <p>Ingested docs are ready. Click a starter or type your own.</p>
+            <div class="suggestions">
+              <button class="chip">Who coined the term machine learning?</button>
+              <button class="chip">How does RAG reduce hallucination?</button>
+              <button class="chip">Why do Transformers need positional encodings?</button>
+              <button class="chip">What is the capital of France?</button>
+            </div>
+          </div>
+        </div>
+
+        <form id="ask-form" class="ask">
+          <textarea id="question" rows="2" placeholder="Ask anything about your ingested documents…" required></textarea>
+          <div class="ask-controls">
+            <label>top-k <input id="top-k" type="number" min="1" max="20" value="4" /></label>
+            <label>threshold <input id="threshold" type="number" min="0" max="1" step="0.05" value="0.30" /></label>
+            <button class="primary" type="submit">Ask</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- right: recent queries -->
+      <div class="card recent-card">
+        <div class="card-head">
+          <h2>Recent queries</h2>
+          <span class="hint">Last 10 logged Q/A traces</span>
+        </div>
+        <ul id="recent-queries" class="recent-list">
+          <li class="empty-row">No queries yet</li>
+        </ul>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>FAISS · sentence-transformers · FastAPI · Chart.js</span>
+    <a href="/docs" target="_blank" rel="noopener">OpenAPI ↗</a>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

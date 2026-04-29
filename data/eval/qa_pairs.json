@@ -1,0 +1,52 @@
+[
+  {
+    "question": "Who coined the term machine learning and in what year?",
+    "answer": "Arthur Samuel coined the term in 1959.",
+    "source": "machine_learning.txt"
+  },
+  {
+    "question": "What are the three main paradigms of machine learning?",
+    "answer": "Supervised learning, unsupervised learning, and reinforcement learning.",
+    "source": "machine_learning.txt"
+  },
+  {
+    "question": "What does the bias-variance tradeoff describe?",
+    "answer": "It describes the tradeoff between underfitting from high bias and overfitting from high variance.",
+    "source": "machine_learning.txt"
+  },
+  {
+    "question": "Which paper introduced the Transformer architecture?",
+    "answer": "Attention Is All You Need by Vaswani et al. in 2017.",
+    "source": "transformers.txt"
+  },
+  {
+    "question": "What three vectors does each token compute in self-attention?",
+    "answer": "Query, key, and value vectors.",
+    "source": "transformers.txt"
+  },
+  {
+    "question": "Why does the Transformer need positional encodings?",
+    "answer": "Because self-attention is permutation-invariant, positional encodings inject token-order information.",
+    "source": "transformers.txt"
+  },
+  {
+    "question": "What does RAG stand for and what does it do?",
+    "answer": "Retrieval-Augmented Generation; it combines a retrieval component with a generative language model to ground answers in external documents.",
+    "source": "rag_systems.txt"
+  },
+  {
+    "question": "Name three techniques RAG systems use to reduce hallucination.",
+    "answer": "A strict system prompt, a retrieval confidence threshold, and source attribution / citations.",
+    "source": "rag_systems.txt"
+  },
+  {
+    "question": "Why does chunk size matter in RAG?",
+    "answer": "Chunks that are too small lose context, while chunks that are too large dilute the signal and waste tokens.",
+    "source": "rag_systems.txt"
+  },
+  {
+    "question": "What is the capital of France?",
+    "answer": "I don't know based on the provided context.",
+    "source": null
+  }
+]

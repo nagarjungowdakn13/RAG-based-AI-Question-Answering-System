@@ -1,0 +1,19 @@
+Introduction to Machine Learning
+
+Machine learning is a subfield of artificial intelligence that focuses on building systems that learn from data rather than following explicitly programmed instructions. The term was coined by Arthur Samuel in 1959, when he defined it as the field of study that gives computers the ability to learn without being explicitly programmed.
+
+Supervised, Unsupervised, and Reinforcement Learning
+
+There are three primary paradigms in machine learning. Supervised learning trains a model on labeled examples, where each input is paired with a correct output; common tasks include classification and regression. Unsupervised learning works with unlabeled data and tries to discover hidden structure, such as clusters or low-dimensional representations. Reinforcement learning trains an agent to take actions in an environment in order to maximize a cumulative reward signal.
+
+Common Algorithms
+
+Classical machine learning includes algorithms such as linear regression, logistic regression, decision trees, random forests, gradient boosted trees, support vector machines, and k-nearest neighbors. Each algorithm makes different assumptions about the data and trades off interpretability, accuracy, and training speed.
+
+Bias and Variance
+
+The bias-variance tradeoff is a central concept. A model with high bias is too simple and underfits the training data, while a model with high variance is overly flexible and overfits to noise. Techniques such as regularization, cross-validation, and ensembling are used to find a good balance.
+
+Evaluation Metrics
+
+Classification models are evaluated using metrics such as accuracy, precision, recall, F1 score, and ROC-AUC. Regression models are evaluated using mean absolute error, mean squared error, root mean squared error, and R-squared. The choice of metric depends on the cost of different kinds of errors in the application domain.

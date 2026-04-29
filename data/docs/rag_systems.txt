@@ -1,0 +1,23 @@
+Retrieval-Augmented Generation
+
+Retrieval-Augmented Generation, or RAG, is a technique that combines a retrieval component with a generative language model. Rather than relying solely on parameters learned during pre-training, a RAG system fetches relevant documents from an external knowledge source at query time and conditions the generator on those documents. This grounds the answer in verifiable text and dramatically reduces hallucination.
+
+Why RAG
+
+Large language models are knowledge-frozen at training time and have a finite context window. RAG addresses both limitations: it makes private or recently-updated information available without retraining, and it lets developers cite the specific passages that produced an answer. Typical use cases include enterprise question answering, customer support, code search, and assistant agents that operate over proprietary data.
+
+Pipeline Stages
+
+A typical RAG pipeline has five stages. Ingestion loads source documents from formats such as text, Markdown, HTML, and PDF. Chunking splits each document into smaller passages so that retrieval can return precise context. Embedding turns each chunk into a dense vector using a model such as a sentence transformer. The vectors are stored in a vector database such as FAISS, Qdrant, or Pinecone. At query time, the user's question is embedded with the same model, the top-k most similar chunks are retrieved, and the question and chunks are passed to the language model.
+
+Chunking Strategies
+
+Choosing a good chunk size matters. Chunks that are too small lose context, while chunks that are too large dilute the signal and waste tokens. Recursive character splitting that respects paragraph and sentence boundaries usually outperforms fixed-window splitting. Overlapping chunks help when the answer spans a chunk boundary.
+
+Reducing Hallucination
+
+Three techniques work well together. First, a strict system prompt instructs the model to answer only from the provided context and to refuse otherwise. Second, a retrieval confidence threshold causes the system to abstain when no chunk passes a similarity floor. Third, citations or source attribution let users verify that the answer is grounded in real text.
+
+Evaluation
+
+A RAG system is evaluated end-to-end with answer-quality metrics such as exact match and semantic similarity, and component-wise with retrieval metrics such as recall@k or Mean Reciprocal Rank. Ablation studies that vary chunk size, top-k, or the embedding model help locate the dominant source of error.

@@ -1,0 +1,23 @@
+The Transformer Architecture
+
+The Transformer is a neural network architecture introduced by Vaswani et al. in the 2017 paper "Attention Is All You Need". It replaced recurrent and convolutional layers with a mechanism called self-attention, enabling much better parallelization on modern hardware and significantly improved performance on sequence-to-sequence tasks such as machine translation.
+
+Self-Attention
+
+Self-attention allows every position in a sequence to attend to every other position. For each token the model computes three vectors: a query, a key, and a value. The attention weights are obtained by taking the dot product of the query with all keys, scaling by the square root of the key dimension, and applying a softmax. The output is a weighted sum of the value vectors. This mechanism captures long-range dependencies in a single layer.
+
+Multi-Head Attention
+
+Instead of performing a single attention function, the Transformer uses multiple attention heads in parallel. Each head learns to focus on different aspects of the input, such as syntactic or semantic relationships. The outputs of all heads are concatenated and projected back to the model dimension.
+
+Encoder and Decoder
+
+The original Transformer has an encoder stack that processes the input and a decoder stack that generates the output one token at a time. Each block contains a multi-head attention sub-layer followed by a position-wise feed-forward network, with residual connections and layer normalization around each sub-layer.
+
+Positional Encodings
+
+Because self-attention is permutation-invariant, the Transformer needs a way to inject information about token order. The original paper used fixed sinusoidal positional encodings. Later variants use learned positional embeddings or relative position encodings such as RoPE.
+
+Modern Variants
+
+Modern large language models such as GPT, Claude, Llama, and Mistral are decoder-only Transformers trained with a causal language modeling objective. Encoder-only models such as BERT remain widely used for classification and embedding tasks.

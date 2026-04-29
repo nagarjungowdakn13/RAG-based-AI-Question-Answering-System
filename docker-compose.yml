@@ -1,0 +1,36 @@
+services:
+  rag:
+    build: .
+    image: rag-qa:latest
+    container_name: rag-qa
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Override these via a `.env` file or shell env. Defaults below
+      # match the local-no-keys configuration so the container is
+      # interactive out of the box.
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-huggingface}
+      LLM_BACKEND: ${LLM_BACKEND:-extractive}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHUNK_SIZE: ${CHUNK_SIZE:-500}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-100}
+      TOP_K: ${TOP_K:-4}
+      SCORE_THRESHOLD: ${SCORE_THRESHOLD:-0.30}
+      AUTO_INGEST_ON_STARTUP: ${AUTO_INGEST_ON_STARTUP:-true}
+      AUTO_INGEST_PATH: /app/data/docs
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      # Persist the FAISS index, logs, and eval results across restarts.
+      - rag-storage:/app/storage
+      # Mount the bundled docs read-only so AUTO_INGEST works.
+      - ./data:/app/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  rag-storage:
