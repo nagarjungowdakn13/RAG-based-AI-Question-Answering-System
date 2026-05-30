@@ -80,6 +80,30 @@ The query path is now split into auditable stages:
 
 This matters because reliable RAG should fail closed: weak retrieval, empty output, low grounding, or low confidence all produce `"I don't know based on the provided context."` with an explicit rejection reason.
 
+### Retrieval upgrades
+
+The retriever is a composable pipeline; each stage is independently toggleable via `.env`:
+
+1. **Dense ANN** over FAISS (always on).
+2. **BM25 sparse retrieval** over the same chunk corpus, rebuilt automatically when the index version bumps. Catches lexical queries (names, IDs, acronyms) that pure semantic search misses. (`RETRIEVAL_MODE=hybrid`)
+3. **Reciprocal Rank Fusion** combines dense + sparse without normalizing scores. (`RRF_K=60`)
+4. **Source filter** restricts retrieval to a caller-specified set of files (basename or path), without rebuilding sub-indices.
+5. **MMR diversification** on the fused candidate pool removes near-duplicate chunks caused by chunk overlap. (`MMR_ENABLED=true`, `MMR_LAMBDA=0.6`)
+6. **Cross-encoder reranker** (opt-in) reads `(query, chunk)` pairs jointly for much higher precision. (`RERANKER_ENABLED=true`)
+7. **Query result cache** is keyed by question + params + index version, so it invalidates automatically on ingest/delete. (`QUERY_CACHE_SIZE=256`)
+
+### New endpoints
+
+- `POST /query/stream` — Server-Sent Events. Emits `sources` → `token` deltas → `done` with the final answer, confidence, and grounding verdict.
+- `GET /ready` — strict readiness probe (503 when index is empty).
+- `GET /health` — now reports uptime, index version, embedder dim, retrieval mode, reranker availability, cache stats, and free disk.
+
+### Other improvements
+
+- **Token-aware chunking** via tiktoken (`CHUNK_UNIT=tokens`) — chunk size matches what the LLM actually sees.
+- **PyMuPDF** PDF extraction with `pypdf` fallback (`PDF_BACKEND=auto`) — better layout handling on columned/figured PDFs.
+- **Token-bucket rate limiter** per client IP on mutating endpoints (`RATE_LIMIT_PER_MINUTE=...`). In-memory, zero deps.
+
 Module map:
 
 | Layer            | File                              | Responsibility                                      |
@@ -102,6 +126,12 @@ Module map:
 | Eval metrics     | `app/evaluation/metrics.py`       | EM, semantic sim, retrieval@k                       |
 | Eval runner      | `app/evaluation/evaluator.py`     | Runs QA file, persists JSON results                 |
 | Eval store       | `app/evaluation/store.py`         | SQLite run/item persistence                         |
+| BM25 index       | `app/retrieval/bm25.py`           | Pure-Python Okapi BM25, rebuilt on index version    |
+| RRF fusion       | `app/retrieval/hybrid.py`         | Reciprocal Rank Fusion of dense + sparse            |
+| MMR              | `app/retrieval/mmr.py`            | Maximal Marginal Relevance diversification          |
+| Reranker         | `app/retrieval/reranker.py`       | Optional cross-encoder reranker (lazy/gated)        |
+| Query cache      | `app/pipeline/query_cache.py`     | LRU keyed by question + params + index version      |
+| Rate limit       | `app/rate_limit.py`               | Token-bucket per client IP                          |
 | CLI              | `run.py`                          | `ingest`, `query`, `evaluate`, `serve`              |
 
 ---
@@ -285,6 +315,20 @@ All settings come from `.env` (see `.env.example`):
 | `LOG_DIR`               | `storage/logs`                               | App log + JSONL Q/A trace                                    |
 | `EVAL_DIR`              | `storage/eval_results`                       | Per-run evaluation JSON                                      |
 | `EVAL_DB_PATH`          | `storage/eval_results/evaluations.sqlite3`   | SQLite DB for evaluation run comparison                      |
+| `CHUNK_UNIT`            | `chars`                                      | `chars` or `tokens` (tiktoken-based)                         |
+| `TIKTOKEN_ENCODING`     | `cl100k_base`                                | Encoding used when `CHUNK_UNIT=tokens`                       |
+| `RETRIEVAL_MODE`        | `hybrid`                                     | `dense` or `hybrid` (FAISS + BM25 fused via RRF)             |
+| `HYBRID_CANDIDATE_MULTIPLIER` | `3`                                    | Candidate pool per retriever before fusion                   |
+| `RRF_K`                 | `60`                                         | RRF smoothing constant                                       |
+| `MMR_ENABLED`           | `true`                                       | Diversify the fused pool with MMR                            |
+| `MMR_LAMBDA`            | `0.6`                                        | 1.0 = pure relevance, 0.0 = pure diversity                   |
+| `RERANKER_ENABLED`      | `false`                                      | Enable cross-encoder reranker (downloads model on first use) |
+| `RERANKER_MODEL`        | `cross-encoder/ms-marco-MiniLM-L-6-v2`       | sentence-transformers cross-encoder model id                 |
+| `QUERY_CACHE_ENABLED`   | `true`                                       | Toggle the in-memory LRU                                     |
+| `QUERY_CACHE_SIZE`      | `256`                                        | Max cached responses                                         |
+| `PDF_BACKEND`           | `auto`                                       | `auto` / `pymupdf` / `pypdf`                                 |
+| `RATE_LIMIT_PER_MINUTE` | `0`                                          | Per-IP cap on mutating endpoints. 0 disables.                |
+| `RATE_LIMIT_BURST`      | `20`                                         | Initial bucket size                                          |
 
 Both `top_k` and `score_threshold` can also be overridden per request.
 

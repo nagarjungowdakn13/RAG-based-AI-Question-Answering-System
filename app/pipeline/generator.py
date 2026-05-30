@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from typing import Iterator
+
 from app.config import settings
 from app.generation.prompts import (
     UNKNOWN_ANSWER,
@@ -29,6 +31,13 @@ class Generator(Protocol):
         hits: list[RetrievalHit],
         prompt_strategy: PromptStrategy = "strict",
     ) -> str: ...
+
+    def stream(
+        self,
+        question: str,
+        hits: list[RetrievalHit],
+        prompt_strategy: PromptStrategy = "strict",
+    ) -> Iterator[str]: ...
 
 
 class OpenAIGenerator:
@@ -61,6 +70,34 @@ class OpenAIGenerator:
         )
         return (resp.choices[0].message.content or "").strip() or UNKNOWN_ANSWER
 
+    def stream(
+        self,
+        question: str,
+        hits: list[RetrievalHit],
+        prompt_strategy: PromptStrategy = "strict",
+    ) -> Iterator[str]:
+        if not hits:
+            yield UNKNOWN_ANSWER
+            return
+        prompt = self._prompts.build(question, hits, prompt_strategy)
+        stream = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": prompt.user},
+            ],
+            temperature=0.0,
+            max_tokens=400,
+            stream=True,
+        )
+        for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta.content or ""
+            except (AttributeError, IndexError):
+                delta = ""
+            if delta:
+                yield delta
+
 
 class ExtractiveGenerator:
     """No-LLM fallback that returns the top-ranked retrieved passage."""
@@ -82,6 +119,19 @@ class ExtractiveGenerator:
             "[extractive answer - no LLM configured]\n"
             f"Most relevant passage from {src} [#1]:\n\n{snippet}"
         )
+
+    def stream(
+        self,
+        question: str,
+        hits: list[RetrievalHit],
+        prompt_strategy: PromptStrategy = "strict",
+    ) -> Iterator[str]:
+        # No real LLM tokens to stream; chunk by word so the SSE client sees
+        # an incremental answer that still finishes promptly.
+        full = self.generate(question, hits, prompt_strategy)
+        words = full.split(" ")
+        for i, w in enumerate(words):
+            yield (w + (" " if i < len(words) - 1 else ""))
 
 
 def build_generator() -> Generator:

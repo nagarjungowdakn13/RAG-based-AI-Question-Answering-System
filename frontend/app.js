@@ -84,6 +84,7 @@ async function refreshStats() {
     paintTopSources(j.top_sources);
     paintRecent(j.recent_queries);
     paintStatusPill(j);
+    paintSourceFilter(j.indexed_sources || []);
     updateChatEmptyState(j);
   } catch {
     const pill = $("#status-pill");
@@ -95,8 +96,55 @@ async function refreshStats() {
 function paintStatusPill(j) {
   const pill = $("#status-pill");
   pill.className = "pill pill-ok";
-  $("#status-text").textContent = `${j.index_size} chunks · ${j.embedding_backend} · ${j.llm_backend}`;
+  const parts = [
+    `${j.index_size} chunks`,
+    j.embedding_backend,
+    j.llm_backend,
+  ];
+  if (j.retrieval_mode) parts.push(`${j.retrieval_mode}${j.mmr_enabled ? "+mmr" : ""}`);
+  if (j.cache && j.cache.maxsize > 0) {
+    parts.push(`cache ${j.cache.hits}/${j.cache.hits + j.cache.misses}`);
+  }
+  $("#status-text").textContent = parts.join(" · ");
 }
+
+// ─── source filter chips ───────────────────────────────────────
+const activeSourceFilter = new Set();
+
+function paintSourceFilter(sources) {
+  const row = $("#source-filter-row");
+  const container = $("#src-filter-chips");
+  if (!sources || sources.length === 0) {
+    row.classList.add("hidden");
+    container.innerHTML = "";
+    activeSourceFilter.clear();
+    return;
+  }
+  row.classList.remove("hidden");
+  // Drop any active filter that no longer exists in the index.
+  for (const name of [...activeSourceFilter]) {
+    if (!sources.includes(name)) activeSourceFilter.delete(name);
+  }
+  container.innerHTML = sources
+    .map((name) => {
+      const active = activeSourceFilter.has(name) ? " active" : "";
+      return `<button type="button" class="src-chip${active}" data-src="${escapeHTML(name)}">${escapeHTML(name)}</button>`;
+    })
+    .join("");
+  container.querySelectorAll(".src-chip").forEach((chip) => {
+    chip.onclick = () => {
+      const name = chip.dataset.src;
+      if (activeSourceFilter.has(name)) activeSourceFilter.delete(name);
+      else activeSourceFilter.add(name);
+      chip.classList.toggle("active");
+    };
+  });
+}
+
+$("#src-filter-clear").addEventListener("click", () => {
+  activeSourceFilter.clear();
+  $$(".src-chip").forEach((c) => c.classList.remove("active"));
+});
 
 function paintKpis(j) {
   $("#kpi-chunks").textContent = j.index_size;
@@ -413,13 +461,99 @@ const questionInput = $("#question");
 // Initial chip handlers (in case the static HTML chips are still present).
 attachChipHandlers();
 
+function buildQueryBody(question, top_k, threshold) {
+  const body = { question, top_k, score_threshold: threshold };
+  if (activeSourceFilter.size > 0) {
+    body.source_filter = [...activeSourceFilter];
+  }
+  return body;
+}
+
 async function doQuery(question, top_k, threshold) {
   const r = await fetchT("/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, top_k, score_threshold: threshold }),
+    body: JSON.stringify(buildQueryBody(question, top_k, threshold)),
   }, 60000);
   return { status: r.status, body: await r.json() };
+}
+
+// ─── SSE streaming: fetch + manual event parser (EventSource is GET-only) ───
+async function streamQuery(question, top_k, threshold, placeholder) {
+  const resp = await fetch("/query/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildQueryBody(question, top_k, threshold)),
+  });
+  if (!resp.ok || !resp.body) {
+    const body = await resp.json().catch(() => ({}));
+    return { status: resp.status, body };
+  }
+
+  placeholder.innerHTML = `
+    <div class="answer-text" id="stream-answer"></div>
+    <div class="confidence-row"><span class="hint"><span class="spin"></span>streaming…</span></div>
+    <details class="sources hidden" id="stream-sources-block">
+      <summary>📎 sources</summary>
+      <div id="stream-sources-list"></div>
+    </details>`;
+  const answerEl = placeholder.querySelector("#stream-answer");
+  const sourcesBlock = placeholder.querySelector("#stream-sources-block");
+  const sourcesList = placeholder.querySelector("#stream-sources-list");
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let acc = "";
+  let firstSources = null;
+  let doneEvent = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "sources") {
+          firstSources = evt.sources;
+          sourcesList.innerHTML = (evt.sources || []).map(sourceCardHTML).join("");
+          sourcesBlock.classList.remove("hidden");
+          sourcesBlock.querySelector("summary").textContent =
+            `📎 ${evt.sources.length} source${evt.sources.length === 1 ? "" : "s"}`;
+          chat.scrollTop = chat.scrollHeight;
+        } else if (evt.type === "token") {
+          acc += evt.delta;
+          answerEl.textContent = acc;
+          chat.scrollTop = chat.scrollHeight;
+        } else if (evt.type === "done") {
+          doneEvent = evt;
+        } else if (evt.type === "error") {
+          throw new Error(evt.message || "stream error");
+        }
+      }
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      question,
+      answer: doneEvent && doneEvent.answer ? doneEvent.answer : acc,
+      confident: !!(doneEvent && !doneEvent.rejected),
+      confidence_score: (doneEvent && doneEvent.confidence_score) || 0,
+      confidence_explanation: doneEvent && doneEvent.confidence_explanation,
+      rejected: !!(doneEvent && doneEvent.rejected),
+      rejection_reason: doneEvent && doneEvent.rejection_reason,
+      sources: firstSources || [],
+      metadata: { streamed: true, top_k },
+    },
+  };
 }
 
 askForm.addEventListener("submit", async (e) => {
@@ -437,9 +571,12 @@ askForm.addEventListener("submit", async (e) => {
   const top_k = parseInt($("#top-k").value, 10) || 4;
   const thresholdRaw = parseFloat($("#threshold").value);
   const threshold = isNaN(thresholdRaw) ? null : thresholdRaw;
+  const useStream = $("#stream-toggle").checked;
 
   try {
-    const { status, body } = await doQuery(question, top_k, threshold);
+    const { status, body } = useStream
+      ? await streamQuery(question, top_k, threshold, placeholder)
+      : await doQuery(question, top_k, threshold);
 
     if (status === 409) {
       placeholder.innerHTML = `
@@ -483,6 +620,33 @@ function appendMessage(role, html, isHTML = false) {
   return div;
 }
 
+function sourceCardHTML(s) {
+  return `
+    <div class="source">
+      <div class="source-head">
+        <strong>[#${s.rank}] ${escapeHTML(basename(s.source))}</strong>
+        <span>score ${Number(s.score).toFixed(3)}</span>
+      </div>
+      <div class="source-snippet">${escapeHTML(s.snippet)}</div>
+    </div>`;
+}
+
+function retrievalBadgesHTML(meta) {
+  if (!meta) return "";
+  const badges = [];
+  const r = meta.retrieval || {};
+  if (r.mode === "hybrid") badges.push(`<span class="r-badge b-hybrid">hybrid</span>`);
+  else if (r.mode === "dense") badges.push(`<span class="r-badge">dense</span>`);
+  if (r.mmr_applied) badges.push(`<span class="r-badge b-mmr">mmr</span>`);
+  if (r.rerank_applied) badges.push(`<span class="r-badge b-rerank">rerank</span>`);
+  if (r.source_filter && r.source_filter.length) {
+    badges.push(`<span class="r-badge b-filter">filter:${escapeHTML(r.source_filter.join(","))}</span>`);
+  }
+  if (meta.served_from_cache) badges.push(`<span class="r-badge b-cache">cached</span>`);
+  if (meta.streamed) badges.push(`<span class="r-badge">streamed</span>`);
+  return badges.length ? `<span class="retrieval-badges">${badges.join("")}</span>` : "";
+}
+
 function renderAnswer(j) {
   const wrap = document.createElement("div");
   wrap.className = "msg-a";
@@ -492,22 +656,16 @@ function renderAnswer(j) {
   if (j.confident && conf >= 0.55) { confClass = "conf-high"; confLabel = "high confidence"; }
   else if (j.confident) { confClass = "conf-mid"; confLabel = "moderate confidence"; }
 
-  const sourcesHTML = (j.sources || [])
-    .map((s) => `
-      <div class="source">
-        <div class="source-head">
-          <strong>[#${s.rank}] ${escapeHTML(basename(s.source))}</strong>
-          <span>score ${s.score.toFixed(3)}</span>
-        </div>
-        <div class="source-snippet">${escapeHTML(s.snippet)}</div>
-      </div>`)
-    .join("");
+  const sourcesHTML = (j.sources || []).map(sourceCardHTML).join("");
+  const meta = j.metadata || {};
+  const backend = meta.embedding_backend || "";
+  const topK = meta.top_k || "";
 
   wrap.innerHTML = `
     <div class="answer-text">${escapeHTML(j.answer)}</div>
     <div class="confidence-row">
       <span class="conf-badge ${confClass}">● ${confLabel} · ${conf.toFixed(2)}</span>
-      <span>${escapeHTML((j.metadata && j.metadata.embedding_backend) || "")} · top-${(j.metadata && j.metadata.top_k) || ""}</span>
+      <span>${escapeHTML(backend)}${topK ? " · top-" + topK : ""}${retrievalBadgesHTML(meta)}</span>
     </div>
     ${j.sources && j.sources.length ? `
       <details class="sources">

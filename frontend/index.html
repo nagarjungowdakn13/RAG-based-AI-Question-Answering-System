@@ -158,9 +158,17 @@
 
         <form id="ask-form" class="ask">
           <textarea id="question" rows="2" placeholder="Ask anything about your ingested documents…" required></textarea>
+          <div class="source-filter-row" id="source-filter-row">
+            <span class="src-filter-label">Restrict to:</span>
+            <div class="src-filter-chips" id="src-filter-chips"></div>
+            <button type="button" class="link-btn" id="src-filter-clear" title="Clear source filter">clear</button>
+          </div>
           <div class="ask-controls">
             <label>top-k <input id="top-k" type="number" min="1" max="20" value="4" /></label>
             <label>threshold <input id="threshold" type="number" min="0" max="1" step="0.05" value="0.30" /></label>
+            <label class="checkbox-label" title="Stream the answer token-by-token via Server-Sent Events">
+              <input id="stream-toggle" type="checkbox" /> stream
+            </label>
             <button class="primary" type="submit">Ask</button>
           </div>
         </form>

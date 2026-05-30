@@ -38,6 +38,14 @@ class QueryRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=20)
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     prompt_strategy: str | None = Field(default=None, pattern="^(strict|fallback)$")
+    source_filter: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional list of source filenames or paths to restrict retrieval to. "
+            "Both basename ('rag_systems.txt') and full path are accepted."
+        ),
+        max_length=50,
+    )
 
 
 class SourceChunk(BaseModel):

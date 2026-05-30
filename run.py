@@ -30,11 +30,44 @@ def _cmd_query(args) -> int:
     if rag.store.size == 0:
         print("Index is empty. Run `ingest` first.", file=sys.stderr)
         return 2
+
+    if args.stream:
+        # Stream answer tokens to stdout; emit a final JSON line with sources
+        # and verdict so the output is still pipeline-friendly.
+        sources = None
+        printed_any = False
+        for evt in rag.stream_query(
+            args.question,
+            top_k=args.top_k,
+            score_threshold=args.threshold,
+            prompt_strategy=args.prompt_strategy,
+            source_filter=args.source_filter,
+        ):
+            if evt["type"] == "sources":
+                sources = evt["sources"]
+            elif evt["type"] == "token":
+                sys.stdout.write(evt["delta"])
+                sys.stdout.flush()
+                printed_any = True
+            elif evt["type"] == "done":
+                if printed_any:
+                    sys.stdout.write("\n")
+                tail = {
+                    "rejected": evt.get("rejected"),
+                    "rejection_reason": evt.get("rejection_reason"),
+                    "confidence_score": evt.get("confidence_score"),
+                    "answer": evt.get("answer"),
+                    "sources": sources or [],
+                }
+                print(json.dumps(tail, indent=2, ensure_ascii=False), file=sys.stderr)
+        return 0
+
     result = rag.query(
         args.question,
         top_k=args.top_k,
         score_threshold=args.threshold,
         prompt_strategy=args.prompt_strategy,
+        source_filter=args.source_filter,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
@@ -76,6 +109,14 @@ def main() -> int:
     pq.add_argument("--top-k", type=int, default=None)
     pq.add_argument("--threshold", type=float, default=None)
     pq.add_argument("--prompt-strategy", choices=["strict", "fallback"], default=None)
+    pq.add_argument(
+        "--source-filter", nargs="+", default=None,
+        help="Restrict retrieval to these source files (basename or full path).",
+    )
+    pq.add_argument(
+        "--stream", action="store_true",
+        help="Stream answer tokens to stdout; final JSON verdict to stderr.",
+    )
     pq.set_defaults(func=_cmd_query)
 
     pe = sub.add_parser("evaluate", help="Run evaluation against a QA file")

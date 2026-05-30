@@ -96,6 +96,7 @@ def compute_stats() -> dict:
         for m in rag.store._meta
         if m.get("metadata", {}).get("source")
     }
+    indexed_sources = sorted({Path(s).name for s in sources if s})
 
     rows = _load_jsonl(settings.log_dir / "queries.jsonl")
     confidences = [
@@ -114,9 +115,15 @@ def compute_stats() -> dict:
 
     return {
         "index_size": rag.store.size,
+        "index_version": rag.store.version,
         "documents": len(sources),
+        "indexed_sources": indexed_sources,
         "embedding_backend": settings.embedding_backend,
         "llm_backend": settings.llm_backend,
+        "retrieval_mode": settings.retrieval_mode,
+        "mmr_enabled": settings.mmr_enabled,
+        "reranker_enabled": settings.reranker_enabled,
+        "cache": rag.cache.stats(),
         "queries": {
             "total": len(rows),
             "answered": len(answered),

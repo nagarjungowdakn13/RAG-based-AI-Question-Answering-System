@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Chunking
     chunk_size: int = Field(default=500, ge=100, le=4000)
     chunk_overlap: int = Field(default=100, ge=0, le=1000)
+    chunk_unit: Literal["chars", "tokens"] = "chars"
+    tiktoken_encoding: str = "cl100k_base"
 
     # Retrieval
     top_k: int = Field(default=4, ge=1, le=50)
@@ -41,6 +43,31 @@ class Settings(BaseSettings):
     confidence_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     grounding_min_coverage: float = Field(default=0.35, ge=0.0, le=1.0)
     prompt_strategy: Literal["strict", "fallback"] = "strict"
+
+    # Hybrid retrieval (BM25 + dense) + reciprocal rank fusion
+    retrieval_mode: Literal["dense", "hybrid"] = "hybrid"
+    hybrid_candidate_multiplier: int = Field(default=3, ge=1, le=10)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+
+    # MMR diversification on the fused candidate pool
+    mmr_enabled: bool = True
+    mmr_lambda: float = Field(default=0.6, ge=0.0, le=1.0)
+
+    # Optional cross-encoder reranker
+    reranker_enabled: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_candidate_multiplier: int = Field(default=4, ge=1, le=10)
+
+    # Query result cache (LRU). Keyed by question + params + index version.
+    query_cache_enabled: bool = True
+    query_cache_size: int = Field(default=256, ge=0, le=10000)
+
+    # PDF extraction: prefer pymupdf when installed, fall back to pypdf.
+    pdf_backend: Literal["auto", "pymupdf", "pypdf"] = "auto"
+
+    # Rate limit (token bucket, per client IP). 0 disables.
+    rate_limit_per_minute: int = Field(default=0, ge=0, le=10000)
+    rate_limit_burst: int = Field(default=20, ge=1, le=10000)
 
     # Storage
     index_dir: Path = Path("storage/faiss_index")

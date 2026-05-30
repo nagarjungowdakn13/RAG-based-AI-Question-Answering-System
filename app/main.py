@@ -13,17 +13,21 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+
+import json
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.evaluation.evaluator import evaluate
 from app.logger import get_logger
 from app.pipeline.rag import RAGPipeline
+from app.rate_limit import TokenBucketLimiter
 from app.schemas import (
     DeleteDocumentsResponse,
     EvaluateRequest,
@@ -43,9 +47,19 @@ PROTECTED_PATHS = {
     ("POST", "/ingest"),
     ("POST", "/ingest/upload"),
     ("POST", "/query"),
+    ("POST", "/query/stream"),
     ("POST", "/evaluate"),
     ("DELETE", "/documents"),
 }
+
+RATE_LIMITED_PATHS = {
+    "/query", "/query/stream", "/ingest", "/ingest/upload", "/evaluate",
+}
+
+rate_limiter = TokenBucketLimiter(
+    rate_per_minute=settings.rate_limit_per_minute,
+    burst=settings.rate_limit_burst,
+)
 
 
 def _resolve_ingest_path(p: Path) -> Path | None:
@@ -145,6 +159,21 @@ async def request_context(request: Request, call_next):
                 content={"detail": "Missing or invalid X-API-Key header."},
                 headers={"x-request-id": request_id},
             )
+    if rate_limiter.enabled and request.url.path in RATE_LIMITED_PATHS:
+        client_ip = (request.client.host if request.client else "") or "unknown"
+        allowed, retry_after = rate_limiter.allow(client_ip)
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": "Rate limit exceeded.",
+                    "retry_after_seconds": round(retry_after, 2),
+                },
+                headers={
+                    "x-request-id": request_id,
+                    "retry-after": str(max(1, int(retry_after))),
+                },
+            )
     try:
         response = await call_next(request)
     except Exception:
@@ -175,16 +204,53 @@ if FRONTEND_DIR.exists():
         return FileResponse(FRONTEND_DIR / "index.html")
 
 
+START_TIME = time.time()
+
+
 @app.get("/health")
 async def health() -> dict:
     rag = RAGPipeline.instance()
+    try:
+        usage = shutil.disk_usage(str(settings.index_dir.parent.resolve()))
+        disk_free_mb = round(usage.free / (1024 * 1024), 1)
+    except OSError:
+        disk_free_mb = None
     return {
         "status": "ok",
-        "index_size": rag.store.size,
-        "embedding_backend": settings.embedding_backend,
-        "llm_backend": settings.llm_backend,
         "version": app.version,
+        "uptime_seconds": round(time.time() - START_TIME, 1),
+        "now": datetime.now(timezone.utc).isoformat(),
+        "index_size": rag.store.size,
+        "index_version": rag.store.version,
+        "documents": len({
+            m.get("metadata", {}).get("source") for m in rag.store._meta
+            if m.get("metadata", {}).get("source")
+        }),
+        "embedding_backend": settings.embedding_backend,
+        "embedding_dim": rag.embedder.dim,
+        "llm_backend": settings.llm_backend,
+        "retrieval_mode": settings.retrieval_mode,
+        "mmr_enabled": settings.mmr_enabled,
+        "reranker": {
+            "enabled": settings.reranker_enabled,
+            "available": getattr(rag.reranker, "available", False),
+            "model": settings.reranker_model if settings.reranker_enabled else None,
+        },
+        "cache": rag.cache.stats(),
+        "disk_free_mb": disk_free_mb,
     }
+
+
+@app.get("/ready")
+async def ready() -> JSONResponse:
+    """Strict readiness probe: 200 only when the index has documents."""
+    rag = RAGPipeline.instance()
+    if rag.store.size == 0:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "reason": "empty_index"},
+        )
+    return JSONResponse(content={"status": "ready", "index_size": rag.store.size})
 
 
 @app.get("/stats")
@@ -266,12 +332,58 @@ async def query(req: QueryRequest) -> QueryResponse:
         )
     try:
         result = await asyncio.to_thread(
-            rag.query, req.question, req.top_k, req.score_threshold, req.prompt_strategy
+            rag.query,
+            req.question, req.top_k, req.score_threshold, req.prompt_strategy,
+            req.source_filter,
         )
     except Exception as e:
         logger.exception("Query failed")
         raise HTTPException(status_code=500, detail=str(e))
     return QueryResponse(**result)
+
+
+@app.post("/query/stream")
+async def query_stream(req: QueryRequest) -> StreamingResponse:
+    """Server-Sent Events version of /query.
+
+    Emits one `data:` line per event with these `type` values:
+      - `sources`: initial source-chunk array (so the UI can render before tokens arrive)
+      - `token`:   incremental answer deltas
+      - `done`:    final aggregate (answer, confidence, rejection status)
+
+    Bridges a blocking iterator from the RAG pipeline into the async event
+    loop via a thread pool — keeping the loop responsive while the LLM streams.
+    """
+    rag = RAGPipeline.instance()
+    if rag.store.size == 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Index is empty. POST /ingest documents before querying.",
+        )
+
+    async def event_stream():
+        loop = asyncio.get_running_loop()
+        it = rag.stream_query(
+            req.question, req.top_k, req.score_threshold,
+            req.prompt_strategy, req.source_filter,
+        )
+        sentinel = object()
+        try:
+            while True:
+                event = await loop.run_in_executor(None, lambda: next(it, sentinel))
+                if event is sentinel:
+                    break
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("Streaming query failed")
+            err = {"type": "error", "message": str(e)}
+            yield f"data: {json.dumps(err)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/evaluate", response_model=EvaluateResponse)

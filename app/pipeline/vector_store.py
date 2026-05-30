@@ -42,6 +42,10 @@ class FaissVectorStore:
         self.index: faiss.Index = faiss.IndexFlatIP(dim)
         self._meta: list[dict] = []  # row i ↔ self._meta[i]
         self._known_ids: set[str] = set()
+        # Monotonic counter bumped on any mutation. Used to key caches /
+        # secondary indices (BM25) to the current snapshot so they invalidate
+        # cleanly on ingest or delete.
+        self._version: int = 0
 
     # ─── core ops ────────────────────────────────────────────────────
     def add(self, vectors: np.ndarray, chunks: list[Chunk]) -> int:
@@ -80,30 +84,88 @@ class FaissVectorStore:
             )
         else:
             logger.info("Index now contains %d vectors", self.index.ntotal)
+        self._version += 1
         return len(keep_rows)
 
-    def search(self, query_vec: np.ndarray, top_k: int) -> list[RetrievalHit]:
+    def search(
+        self,
+        query_vec: np.ndarray,
+        top_k: int,
+        candidate_rows: list[int] | None = None,
+    ) -> list[RetrievalHit]:
+        """Search the FAISS index, optionally restricted to a row subset.
+
+        When `candidate_rows` is supplied we reconstruct those vectors and
+        score against the query directly. This is how source filtering is
+        implemented without rebuilding a sub-index.
+        """
         if self.index.ntotal == 0:
             return []
         if query_vec.ndim == 1:
             query_vec = query_vec.reshape(1, -1)
         if query_vec.dtype != np.float32:
             query_vec = query_vec.astype("float32")
+
+        if candidate_rows is not None:
+            if not candidate_rows:
+                return []
+            subset = np.asarray(
+                [self.index.reconstruct(i) for i in candidate_rows], dtype="float32"
+            )
+            scores = (subset @ query_vec[0]).tolist()
+            scored = sorted(
+                zip(candidate_rows, scores), key=lambda pair: pair[1], reverse=True
+            )[:top_k]
+            return [self._row_to_hit(i, float(s)) for i, s in scored]
+
         scores, idxs = self.index.search(query_vec, min(top_k, self.index.ntotal))
         hits: list[RetrievalHit] = []
         for score, idx in zip(scores[0], idxs[0]):
             if idx == -1:
                 continue
-            row = self._meta[idx]
-            hits.append(
-                RetrievalHit(
-                    score=float(score),
-                    chunk_id=row["chunk_id"],
-                    text=row["text"],
-                    metadata=row["metadata"],
-                )
-            )
+            hits.append(self._row_to_hit(int(idx), float(score)))
         return hits
+
+    def _row_to_hit(self, row: int, score: float) -> RetrievalHit:
+        meta = self._meta[row]
+        return RetrievalHit(
+            score=score,
+            chunk_id=meta["chunk_id"],
+            text=meta["text"],
+            metadata=meta["metadata"],
+        )
+
+    def get_hit(self, row: int) -> RetrievalHit:
+        """Public accessor used by hybrid/MMR layers to materialize a row."""
+        return self._row_to_hit(row, 0.0)
+
+    def get_vector(self, row: int) -> np.ndarray:
+        return self.index.reconstruct(row).astype("float32")
+
+    def texts(self) -> list[str]:
+        return [m["text"] for m in self._meta]
+
+    def rows_for_sources(self, sources: list[str]) -> list[int]:
+        """Return row IDs whose metadata source path/filename matches any
+        of the provided sources. Matches both full path and basename so
+        callers can pass either."""
+        if not sources:
+            return []
+        wanted = {s.lower() for s in sources}
+        out: list[int] = []
+        for i, m in enumerate(self._meta):
+            md = m.get("metadata", {})
+            path = (md.get("source") or "").lower()
+            name = (md.get("filename") or "").lower()
+            if path in wanted or name in wanted:
+                out.append(i)
+                continue
+            # Also match by basename of the configured source path so
+            # callers can pass a short name without knowing the absolute path.
+            base = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            if base in wanted:
+                out.append(i)
+        return out
 
     def delete_by_source(self, source: str) -> int:
         """Delete chunks whose metadata source exactly matches `source`."""
@@ -124,6 +186,7 @@ class FaissVectorStore:
             self.index.add(np.asarray(vectors, dtype="float32"))
         self._meta = [self._meta[i] for i in keep_idxs]
         self._known_ids = {m["chunk_id"] for m in self._meta if m.get("chunk_id")}
+        self._version += 1
         logger.info("Deleted %d chunk(s) for source=%s", delete_count, source)
         return delete_count
 
@@ -154,3 +217,8 @@ class FaissVectorStore:
     @property
     def size(self) -> int:
         return int(self.index.ntotal)
+
+    @property
+    def version(self) -> int:
+        """Bumped on every mutation. Cache keys should include this."""
+        return self._version

@@ -21,6 +21,12 @@ langchain-text-splitters>=0.0.1
 
 # Document loaders
 pypdf>=4.0.0
+# Optional: PyMuPDF gives much better layout-aware text extraction.
+# Set PDF_BACKEND=pymupdf (or auto) to use it; falls back to pypdf if absent.
+pymupdf>=1.23.0; python_version >= "3.9"
+
+# Optional: token-aware chunking (CHUNK_UNIT=tokens)
+tiktoken>=0.5.0
 
 # Optional: OpenAI for generation/embeddings
 openai>=1.12.0
