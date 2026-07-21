@@ -1,0 +1,1 @@
+The Transformer architecture was introduced in the landmark paper 'Attention Is All You Need' in 2017 by Google researchers, including Ashish Vaswani, Jakob Uszkoreit, and others.

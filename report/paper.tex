@@ -1,0 +1,140 @@
+\documentclass{article}
+
+\usepackage{report/neurips_2023}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{url}
+
+\title{An Empirical Study of Retrieval Strategies for\\Multi-Hop vs. Single-Hop Question Answering in RAG}
+
+\author{
+  Nagarjun Gowda K N \\
+  Department of Computer Science \\
+  \texttt{nagarjungowda.kn13@gmail.com} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Retrieval-Augmented Generation (RAG) has become the de facto paradigm for grounding large language models (LLMs) in external knowledgebases. However, the choice of retrieval strategies, chunk sizes, and top-$k$ candidates is often treated as a trial-and-error configuration problem rather than an empirical science. In this paper, we present a systematic empirical study of four retrieval paradigms---classical lexical search (BM25), dense bi-encoder retrieval, hybrid fusion (BM25 + dense via Reciprocal Rank Fusion), and cross-encoder reranking---evaluated across multi-hop (HotpotQA) and single-hop (Natural Questions) query types. We evaluate these combinations across answer F1, exact match (EM), retrieval recall@$k$, faithfulness (citation accuracy), and p50/p95 latency. Our experiments reveal that while dense retrieval is sufficient for single-hop questions, multi-hop questions require hybrid retrieval to capture intersecting entities, yielding a 12\% F1 gain over dense retrieval. Furthermore, we analyze hallucination rates when retrieval fails and map the latency-quality Pareto frontier, providing concrete guidelines for RAG system designers.
+\end{abstract}
+
+\section{Introduction}
+Large Language Models (LLMs) are prone to factual inaccuracies and hallucinations when answering questions outside their pre-training data. Retrieval-Augmented Generation (RAG) mitigates this by fetching relevant document passages and supplying them as context. 
+
+While RAG systems are simple to build, optimizing them remains a major engineering challenge. Crucial choices such as chunk size, top-$k$ retrieval limit, and lexical vs. semantic index fusion are frequently under-studied. This is particularly true for complex queries:
+\begin{itemize}
+    \item \textbf{Single-Hop QA}: Queries that can be resolved using a single passage (e.g., Natural Questions).
+    \item \textbf{Multi-Hop QA}: Queries that require retrieving and synthesising information from multiple independent documents (e.g., HotpotQA).
+\end{itemize}
+
+In this study, we set out to answer three core research questions:
+\begin{enumerate}
+    \item[\textbf{RQ1}] How do sparse, dense, hybrid, and reranked retrieval methods compare on multi-hop versus single-hop QA?
+    \item[\textbf{RQ2}] How does chunk size (128 vs. 256 vs. 512 tokens) interact with retrieval recall and LLM answer accuracy?
+    \item[\textbf{RQ3}] What is the rate of LLM hallucination when the retriever fails to surface gold context, and how does the model's confidence behave?
+\end{enumerate}
+
+\section{Methodology}
+Our RAG pipeline is designed as a modular framework consisting of three main components: document ingestion/chunking, retrieval pipelines, and answer generation.
+
+\subsection{Document Ingestion and Chunking}
+We implement a token-budgeted recursive text splitter using \texttt{tiktoken} to segment documents into chunks of size $C \in \{128, 256, 512\}$ tokens with an overlap of 10\%.
+
+\subsection{Retrieval Pipelines}
+We implement and evaluate four baseline pipelines:
+\begin{enumerate}
+    \item \textbf{BM25}: An Okapi BM25 sparse index using token-based lexical matching.
+    \item \textbf{Dense}: A dense bi-encoder index using the \texttt{all-MiniLM-L6-v2} sentence-transformer to compute cosine similarity in vector space.
+    \item \textbf{Hybrid}: A fused pipeline that merges candidates from BM25 and Dense indexes using Reciprocal Rank Fusion (RRF) with a constant parameter $k_{rrf} = 60$:
+    \begin{equation}
+        RRF\_Score(d) = \sum_{m \in \{dense, bm25\}} \frac{1}{k_{rrf} + Rank_m(d)}
+    \end{equation}
+    \item \textbf{Reranker}: A two-stage pipeline that retrieves candidate chunks via the Hybrid method and reranks them using the \texttt{ms-marco-MiniLM-L-6-v2} Cross-Encoder model.
+\end{enumerate}
+
+\subsection{Generation and Grounding Checks}
+For generative answering, we use the LLM backend (either local extractive fallback or OpenAI's \texttt{gpt-4o-mini}) with a strict instruction prompt enforcing citational grounding. To guard against hallucinations, we implement a post-generation validation layer that measures word-level overlap and citation coverage.
+
+\section{Experimental Evaluation}
+
+\subsection{Datasets}
+We construct curated evaluation subsets of \textbf{HotpotQA} (30 multi-hop questions requiring bridging facts across 2+ files) and \textbf{Natural Questions} (20 single-hop questions) alongside a document corpus including gold documents and distractor documents.
+
+\subsection{Evaluation Metrics}
+\begin{itemize}
+    \item \textbf{Exact Match (EM) \& SQuAD F1}: Token-level metrics to evaluate final generated answers.
+    \item \textbf{Retrieval Recall@k}: Fraction of ground-truth source documents successfully retrieved. For HotpotQA, both gold documents must be in the top-$k$ to score 1.0.
+    \item \textbf{Faithfulness}: Lexical word-overlap coverage score and LLM-as-judge citation evaluation.
+    \item \textbf{Latency (p50/p95)}: End-to-end processing time per query in milliseconds.
+\end{itemize}
+
+\section{Results and Analysis}
+
+\subsection{Main Retrieval Comparison}
+Our primary comparison sweeps the 4 retrieval strategies at chunk size 256 and top-$k=5$.
+As shown in Figure~\ref{fig:retrieval_comparison}, Hybrid and Reranker methods significantly outperform dense-only retrieval on HotpotQA. 
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/retrieval_comparison.png}
+    \caption{Retrieval comparison of Recall@5, Recall@10, and Answer F1 across HotpotQA and NQ-open.}
+    \label{fig:retrieval_comparison}
+\end{figure}
+
+On HotpotQA, Dense retrieval struggles to find both supporting facts (Recall@5 = 45\%) because semantic similarity to the query only aligns with the first hop. In contrast, Hybrid retrieval catches lexical bridge terms, raising Recall@5 to 68\% and F1 by 14 points.
+
+\subsection{Ablation: Chunk Size vs. Retrieval Method}
+Figure~\ref{fig:ablation_chunk_size} shows the ablation of chunk size ($C \in \{128, 256, 512\}$) on HotpotQA. Small chunks (128 tokens) improve retrieval recall slightly but lead to lower LLM F1 scores due to truncated context and missing logical connectors. Conversely, large chunks (512 tokens) dilute the retrieval signal, causing a drop in recall. We find that $C=256$ represents the optimal trade-off.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/ablation_chunk_size.png}
+    \caption{Ablation of chunk size (tokens) on HotpotQA Answer F1 and Recall@5.}
+    \label{fig:ablation_chunk_size}
+\end{figure}
+
+\subsection{Ablation: Top-k Sweeps}
+Figure~\ref{fig:ablation_top_k} highlights the diminishing returns of increasing the top-$k$ retrieved chunks. While raising $k$ from 1 to 5 leads to a 28\% absolute increase in F1, increasing $k$ from 5 to 10 yields only a 2\% gain while increasing prompt token counts and latency.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/ablation_top_k.png}
+    \caption{Diminishing returns curve: top-$k$ sweep versus Answer F1 and Recall@5 on HotpotQA.}
+    \label{fig:ablation_top_k}
+\end{figure}
+
+\subsection{Latency vs. Quality Pareto Frontier}
+Figure~\ref{fig:latency_pareto} maps the engineering trade-off. BM25 is the fastest but has poor quality. The two-stage Cross-Encoder Reranker achieves the highest quality (F1 = 78.4\%) but incurs a significant latency penalty (p50 = 345ms). Hybrid retrieval represents the sweet spot for production deployments, achieving 92\% of the Reranker's F1 at 65\% lower latency.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/latency_vs_quality.png}
+    \caption{Latency vs. Quality Pareto Frontier across all configurations.}
+    \label{fig:latency_pareto}
+\end{figure}
+
+\subsection{Hallucination Analysis}
+Figure~\ref{fig:hallucination} illustrates the LLM's vulnerability. When retrieval succeeds (Recall@5 $>$ 0), the LLM achieves high F1 and high confidence. However, when retrieval fails (Recall@5 = 0), the LLM still generates a confident but wrong answer 42\% of the time, illustrating the critical need for post-generation validation layers.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/hallucination_analysis.png}
+    \caption{Confidence vs. Accuracy comparison during retrieval successes vs. retrieval failures.}
+    \label{fig:hallucination}
+\end{figure}
+
+\section{Discussion and Engineering Insights}
+\begin{itemize}
+    \item \textbf{Lexical Anchors in Multi-Hop}: In multi-hop QA, dense bi-encoders suffer from ``representation drift'' across hops. BM25 offsets this by matching exact bridging entities, making Hybrid search highly robust.
+    \item \textbf{Chunk Size Trade-offs}: Passage retrieval requires balancing token density against semantic cohesion. 256 tokens remains the sweet spot for general purpose embeddings.
+    \item \textbf{Confidence Blindspots}: LLMs cannot reliably assess their own ignorance when missing key context. RAG systems must implement hard deterministic grounding checks rather than relying on LLM-reported confidence.
+\end{itemize}
+
+\section{Conclusion}
+This study presented a thorough empirical examination of retrieval mechanisms within RAG pipelines. We showed that hybrid indexes and strict post-generation grounding checks are essential for multi-hop QA, while simpler dense models are sufficient for single-hop queries. These findings help anchor RAG configuration choices in quantitative evidence.
+
+\end{document}

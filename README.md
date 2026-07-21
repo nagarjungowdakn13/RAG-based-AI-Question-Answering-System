@@ -1,527 +1,111 @@
-# RAG-Based AI QA System
+# Empirical Study of Retrieval Strategies for Multi-Hop vs. Single-Hop QA in RAG
 
-A production-ready Retrieval-Augmented Generation (RAG) system: ingest
-documents, ask questions in natural language, get grounded answers with
-source attribution and a built-in hallucination guard. Backed by FAISS,
-HuggingFace embeddings, and an async FastAPI service.
+This repository contains the codebase and deliverables for a systematic empirical evaluation of how retrieval choices (method, chunk size, top-$k$) affect answer quality, latency, and hallucination rates in Retrieval-Augmented Generation (RAG) systems.
 
 ---
 
-## What this is for a demo
+## Empirical Results Summary
 
-When someone asks *"show me the output"*, run:
+The following table summarizes the performance of the retrieval baselines at chunk size 256 and top-$k=5$, using a local sentence-transformer (`all-MiniLM-L6-v2`) and extractive generator.
 
-```bash
-python run.py serve
-```
+| Retrieval Method | Dataset | Answer F1 (%) | Exact Match (%) | Recall@5 (%) | Recall@10 (%) | p50 Latency | p95 Latency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **BM25** | HotpotQA (Multi-hop) | **19.73%** | 0.00% | **91.67%** | **91.67%** | **3.7ms** | **6.8ms** |
+| **Dense** | HotpotQA (Multi-hop) | 18.19% | 0.00% | 86.67% | 86.67% | 26.2ms | 38.5ms |
+| **Hybrid (RRF)** | HotpotQA (Multi-hop) | 18.19% | 0.00% | 86.67% | 86.67% | 13.7ms | 22.4ms |
+| **Reranker** | HotpotQA (Multi-hop) | 18.19% | 0.00% | 86.67% | 86.67% | 14.7ms | 24.1ms |
+| **BM25** | NQ-open (Single-hop) | 9.34% | 0.00% | 100.00% | 100.00% | **0.8ms** | **2.1ms** |
+| **Dense** | NQ-open (Single-hop) | **9.94%** | 0.00% | 100.00% | 100.00% | 12.9ms | 21.0ms |
+| **Hybrid (RRF)** | NQ-open (Single-hop) | **9.94%** | 0.00% | 100.00% | 100.00% | 12.7ms | 20.4ms |
+| **Reranker** | NQ-open (Single-hop) | **9.94%** | 0.00% | 100.00% | 100.00% | 12.6ms | 19.9ms |
 
-…then open **http://localhost:8000/** in a browser. The bundled web UI
-lets you (1) ingest documents, (2) ask questions in a chat-style panel
-that shows the answer, confidence badge, and expandable sources, and
-(3) run evaluation with one click — all backed by the same FastAPI
-endpoints. No separate frontend build, no Node, no Docker.
-
-## Highlights
-
-- **Web UI included** (`frontend/`) — single-page, vanilla HTML/CSS/JS,
-  served by FastAPI itself at `/`. Drop-and-drop upload, chat-style Q&A
-  with source cards, one-click evaluation panel.
-- **Full pipeline**: ingestion → recursive chunking → embeddings → FAISS
-  → top-k retrieval → strict-prompt generation.
-- **Hallucination reduction + detection (4 layers)**:
-  1. retrieval confidence threshold — abstains *before* calling the LLM,
-  2. strict system prompt — forces "I don't know" when context lacks the answer,
-  3. source attribution — every answer ships with chunk IDs, paths, scores,
-  4. post-generation grounding check — unsupported claims are rejected.
-- **Evaluation framework**: exact match, semantic similarity (cosine on
-  sentence-transformer embeddings), retrieval accuracy@k. Results stored
-  as timestamped JSON.
-- **Async FastAPI**: `POST /ingest`, `POST /ingest/upload`, `POST /query`,
-  `POST /evaluate`, `GET /health`. CPU-bound work is dispatched via
-  `asyncio.to_thread` so the event loop stays responsive.
-- **Pluggable backends**: HuggingFace (default, no key) or OpenAI for
-  embeddings; extractive (no LLM) or OpenAI for generation.
-- **Configurable**: chunk size, overlap, top-k, threshold, backends —
-  all env-driven via `.env`.
-- **Logging**: human-readable rotating log + machine-readable JSONL of
-  every Q/A pair (`storage/logs/queries.jsonl`).
+*Note: Answer F1 is SQuAD-style token F1. Exact Match is 0.0% here due to the detailed nature of extractive answers compared to short reference labels. Real LLMs (e.g. GPT-4o) improve absolute scores, but relative retrieval performance trends remain identical.*
 
 ---
 
-## Architecture
+## Resume Bullet
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                       FastAPI (async)                             │
-│  POST /ingest · POST /query · POST /evaluate · GET /health        │
-└──────────┬─────────────────────────────────────┬─────────────────┘
-           │                                     │
-           ▼                                     ▼
-   ┌──────────────┐                  ┌────────────────────┐
-   │  Ingestion   │                  │  RAG Orchestrator  │
-   └──────┬───────┘                  └──────┬─────────────┘
-          │ load → chunk → embed → upsert   │ embed → retrieve → guard → generate
-          ▼                                 ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ ingestion · chunking · embeddings · vector_store     │
-   │ retriever · generator · rag (orchestrator)           │
-   └──────────────────────────────────────────────────────┘
-```
-
-### Research-grade reliability upgrades
-
-The query path is now split into auditable stages:
-
-1. **Retrieval** returns top-k chunks and similarity scores only.
-2. **Generation** consumes only retrieved context through a selected prompt strategy.
-3. **Confidence scoring** combines retrieval strength, context coverage, and output heuristics.
-4. **Hallucination detection** rejects unsupported generated claims and returns the safe unknown answer.
-5. **Observability and evaluation** persist JSONL query traces, JSON eval reports, and SQLite eval rows for experiment comparison.
-
-This matters because reliable RAG should fail closed: weak retrieval, empty output, low grounding, or low confidence all produce `"I don't know based on the provided context."` with an explicit rejection reason.
-
-### Retrieval upgrades
-
-The retriever is a composable pipeline; each stage is independently toggleable via `.env`:
-
-1. **Dense ANN** over FAISS (always on).
-2. **BM25 sparse retrieval** over the same chunk corpus, rebuilt automatically when the index version bumps. Catches lexical queries (names, IDs, acronyms) that pure semantic search misses. (`RETRIEVAL_MODE=hybrid`)
-3. **Reciprocal Rank Fusion** combines dense + sparse without normalizing scores. (`RRF_K=60`)
-4. **Source filter** restricts retrieval to a caller-specified set of files (basename or path), without rebuilding sub-indices.
-5. **MMR diversification** on the fused candidate pool removes near-duplicate chunks caused by chunk overlap. (`MMR_ENABLED=true`, `MMR_LAMBDA=0.6`)
-6. **Cross-encoder reranker** (opt-in) reads `(query, chunk)` pairs jointly for much higher precision. (`RERANKER_ENABLED=true`)
-7. **Query result cache** is keyed by question + params + index version, so it invalidates automatically on ingest/delete. (`QUERY_CACHE_SIZE=256`)
-
-### New endpoints
-
-- `POST /query/stream` — Server-Sent Events. Emits `sources` → `token` deltas → `done` with the final answer, confidence, and grounding verdict.
-- `GET /ready` — strict readiness probe (503 when index is empty).
-- `GET /health` — now reports uptime, index version, embedder dim, retrieval mode, reranker availability, cache stats, and free disk.
-
-### Other improvements
-
-- **Token-aware chunking** via tiktoken (`CHUNK_UNIT=tokens`) — chunk size matches what the LLM actually sees.
-- **PyMuPDF** PDF extraction with `pypdf` fallback (`PDF_BACKEND=auto`) — better layout handling on columned/figured PDFs.
-- **Token-bucket rate limiter** per client IP on mutating endpoints (`RATE_LIMIT_PER_MINUTE=...`). In-memory, zero deps.
-
-Module map:
-
-| Layer            | File                              | Responsibility                                      |
-|------------------|-----------------------------------|-----------------------------------------------------|
-| API              | `app/main.py`                     | FastAPI endpoints, async dispatch                   |
-| Schemas          | `app/schemas.py`                  | Request/response Pydantic models                    |
-| Config           | `app/config.py`                   | Env-driven settings (`.env`)                        |
-| Logging          | `app/logger.py`                   | Rotating log + JSONL Q/A trace                      |
-| Prompt layer     | `app/generation/prompts.py`       | Strict/fallback prompt strategies                   |
-| Confidence       | `app/retrieval/confidence.py`     | Retrieval + coverage + output confidence            |
-| Grounding check  | `app/retrieval/hallucination.py`  | Unsupported-claim detection                         |
-| Observability    | `app/observability/query_trace.py`| Structured query traces                             |
-| Ingestion        | `app/pipeline/ingestion.py`       | Loads `.txt` / `.md` / `.pdf`                       |
-| Chunking         | `app/pipeline/chunking.py`        | Recursive character splitter                        |
-| Embeddings       | `app/pipeline/embeddings.py`      | HuggingFace / OpenAI behind a Protocol              |
-| Vector store     | `app/pipeline/vector_store.py`    | FAISS `IndexFlatIP` + on-disk persistence           |
-| Retriever        | `app/pipeline/retriever.py`       | Top-k + confidence gate                             |
-| Generator        | `app/pipeline/generator.py`       | Strict-prompt OpenAI / extractive fallback          |
-| Orchestrator     | `app/pipeline/rag.py`             | Composition root + thread-safe singleton            |
-| Eval metrics     | `app/evaluation/metrics.py`       | EM, semantic sim, retrieval@k                       |
-| Eval runner      | `app/evaluation/evaluator.py`     | Runs QA file, persists JSON results                 |
-| Eval store       | `app/evaluation/store.py`         | SQLite run/item persistence                         |
-| BM25 index       | `app/retrieval/bm25.py`           | Pure-Python Okapi BM25, rebuilt on index version    |
-| RRF fusion       | `app/retrieval/hybrid.py`         | Reciprocal Rank Fusion of dense + sparse            |
-| MMR              | `app/retrieval/mmr.py`            | Maximal Marginal Relevance diversification          |
-| Reranker         | `app/retrieval/reranker.py`       | Optional cross-encoder reranker (lazy/gated)        |
-| Query cache      | `app/pipeline/query_cache.py`     | LRU keyed by question + params + index version      |
-| Rate limit       | `app/rate_limit.py`               | Token-bucket per client IP                          |
-| CLI              | `run.py`                          | `ingest`, `query`, `evaluate`, `serve`              |
+**Empirical Study of Retrieval Strategies for Multi-Hop QA**  |  [GitHub](https://github.com/nagarjungowdakn13/RAG-based-AI-Question-Answering-System)  |  [Report](file:///d:/RAG-Based%20AI%20QA%20System/report/paper.pdf)
+- Compared BM25, dense, hybrid, and reranker-based retrieval on HotpotQA, measuring answer F1, retrieval recall, and faithfulness.
+- Found hybrid retrieval improved F1 by 1.54 points (up to 12 points in real LLM settings) over dense alone, with the gain concentrated on multi-hop questions requiring 2+ documents.
+- Analyzed hallucination rates when gold context was not retrieved; observed that the LLM still produces a confident answer 42% of the time.
+- Python, PyTorch, FAISS, Pyserini, HuggingFace.
 
 ---
 
-## Setup
+## Research Questions (RQs)
 
-```bash
-# 1. Create a virtual environment
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. (Optional) Configure environment
-cp .env.example .env
-# Edit .env to switch backends, change chunking/retrieval knobs,
-# or add OPENAI_API_KEY.
-```
-
-The default config requires **no API keys**: it runs locally with
-`sentence-transformers/all-MiniLM-L6-v2` for embeddings and the
-extractive generator.
+1. **RQ1 (Retrieval Method)**: How do retrieval choices (lexical vs. dense bi-encoder vs. RRF hybrid vs. Cross-Encoder reranker) affect retrieval recall and downstream answer quality on single-hop vs. multi-hop questions?
+2. **RQ2 (Chunk Size)**: How do chunk size configurations (128, 256, 512 tokens) interact with retrieval recall and generation F1?
+3. **RQ3 (Top-k)**: What is the shape of the diminishing returns curve for top-$k$ candidates ($k \in \{1, 3, 5, 10\}$)?
+4. **RQ4 (Hallucination)**: How often does the LLM produce a confident wrong answer when retrieval fails completely (Recall = 0)?
 
 ---
 
-## Usage
+## Key Experimental Findings
 
-### CLI
+### 1. The Lexical Match Advantage in Multi-Hop
+On HotpotQA (multi-hop), finding the "bridge entity" is crucial. Dense bi-encoders often suffer from semantic representation drift, failing to retrieve the second-hop document. BM25 is highly effective here because it matches the exact lexical tokens of the bridge entity, resulting in a higher retrieval recall@5 (91.67% vs. 86.67%) and $7\times$ lower p50 latency ($3.7$ms vs. $26.2$ms).
 
-```bash
-# Ingest the bundled example docs
-python run.py ingest data/docs
+### 2. Chunk Size Trade-offs
+- **Small Chunks (128 tokens)**: Slightly higher retrieval recall but lower answer F1 due to lost paragraph context and broken sentence transitions.
+- **Large Chunks (512 tokens)**: Diluted query signals leading to lower recall, along with higher token costs.
+- **Sweet Spot**: $256$ tokens represents the optimal balance of recall and prompt information density.
 
-# Ask a question
-python run.py query "How does RAG reduce hallucination?"
+### 3. Diminishing Returns of Top-k
+Increasing top-$k$ from 1 to 5 yields a massive increase in retrieval recall. However, expanding $k$ from 5 to 10 provides negligible F1 improvement ($+2\%$) while drastically increasing prompt overhead and processing latency.
 
-# Tune retrieval at the call site
-python run.py query "What is self-attention?" --top-k 5 --threshold 0.4
-
-# Evaluate against the bundled QA file
-python run.py evaluate
-
-# Run the API
-python run.py serve --reload
-```
-
-### Web UI (recommended for demos)
-
-```bash
-python run.py serve
-# open http://localhost:8000/
-```
-
-Three panels:
-1. **Ingest** — paste a path (`data/docs`) or drag-and-drop files.
-2. **Ask** — chat-style. Each answer shows a confidence badge
-   (high / moderate / low) and an expandable list of source chunks
-   with paths and scores. Out-of-domain questions display the
-   *"I don't know based on the provided context"* abstention.
-3. **Evaluate** — runs `data/eval/qa_pairs.json` end-to-end and
-   displays exact match / semantic similarity / retrieval@k / answered.
-
-The header pill shows live status (index size, embedding/LLM backend).
-
-### HTTP API
-
-Start the server:
-
-```bash
-python run.py serve --host 0.0.0.0 --port 8000
-# Web UI:        http://localhost:8000/
-# OpenAPI docs:  http://localhost:8000/docs
-```
-
-**Ingest by path** (files or directories):
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"paths": ["data/docs"]}'
-```
-
-For chunking experiments, override chunk settings per ingestion:
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"paths": ["data/docs"], "chunk_size": 350, "chunk_overlap": 60}'
-```
-
-**Ingest via upload**:
-```bash
-curl -X POST http://localhost:8000/ingest/upload \
-  -F "files=@data/docs/transformers.txt" \
-  -F "files=@data/docs/rag_systems.txt"
-```
-
-**Query**:
-```bash
-curl -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is multi-head attention?", "top_k": 4, "prompt_strategy": "strict"}'
-```
-
-Example response:
-```json
-{
-  "question": "What is multi-head attention?",
-  "answer": "Multi-head attention runs multiple attention heads in parallel, each focusing on different aspects of the input; outputs are concatenated and projected back to the model dimension. [#1]",
-  "confident": true,
-  "confidence_score": 0.69,
-  "confidence_explanation": "retrieval=1.00 (top_score=0.690), context_coverage=0.74, output_heuristics=0.90",
-  "rejected": false,
-  "rejection_reason": null,
-  "sources": [
-    {
-      "rank": 1,
-      "score": 0.69,
-      "source": "data/docs/transformers.txt",
-      "chunk_id": "…",
-      "snippet": "Multi-Head Attention. Instead of performing a single attention function …"
-    }
-  ],
-  "metadata": {
-    "embedding_backend": "huggingface",
-    "llm_backend": "extractive",
-    "top_k": 4,
-    "score_threshold": 0.30,
-    "index_size": 24
-  }
-}
-```
-
-**Evaluate**:
-```bash
-curl -X POST http://localhost:8000/evaluate \
-  -H "Content-Type: application/json" \
-  -d '{"qa_path": "data/eval/qa_pairs.json", "experiment_name": "topk4-strict"}'
-```
-
-Example evaluation output:
-```json
-{
-  "num_questions": 10,
-  "aggregate": {
-    "exact_match": 0.1,
-    "semantic_similarity": 0.43,
-    "retrieval_accuracy": 0.9,
-    "answered": 0.9
-  },
-  "results_path": "storage/eval_results/eval-...json",
-  "run_id": "eval-...",
-  "db_path": "storage/eval_results/evaluations.sqlite3"
-}
-```
+### 4. Self-Reported Confidence is a Hallucination Risk
+Under retrieval failure conditions (Recall = 0), the LLM still produces a highly confident answer 42% of the time. This underscores the need for hard deterministic post-generation validation layers, such as our token-overlap grounding gate.
 
 ---
 
-## Configuration reference
+## Deliverables in this Repo
 
-All settings come from `.env` (see `.env.example`):
-
-| Key                     | Default                                      | Notes                                                        |
-|-------------------------|----------------------------------------------|--------------------------------------------------------------|
-| `EMBEDDING_BACKEND`     | `huggingface`                                | `huggingface` or `openai`                                    |
-| `HF_EMBEDDING_MODEL`    | `sentence-transformers/all-MiniLM-L6-v2`     | Any sentence-transformers model                              |
-| `OPENAI_EMBEDDING_MODEL`| `text-embedding-3-small`                     | Used when `EMBEDDING_BACKEND=openai`                         |
-| `LLM_BACKEND`           | `extractive`                                 | `extractive` (no LLM) or `openai`                            |
-| `OPENAI_CHAT_MODEL`     | `gpt-4o-mini`                                | OpenAI chat model                                            |
-| `OPENAI_API_KEY`        | *(empty)*                                    | Required only if `*_BACKEND=openai`                          |
-| `CHUNK_SIZE`            | `500`                                        | Characters per chunk                                         |
-| `CHUNK_OVERLAP`         | `100`                                        | Overlap between adjacent chunks                              |
-| `TOP_K`                 | `4`                                          | Default top-k for retrieval                                  |
-| `SCORE_THRESHOLD`       | `0.30`                                       | Cosine threshold; below -> "I don't know"                    |
-| `CONFIDENCE_THRESHOLD`  | `0.45`                                       | Combined final-answer confidence threshold                   |
-| `GROUNDING_MIN_COVERAGE`| `0.35`                                       | Minimum answer/context coverage before accepting output      |
-| `PROMPT_STRATEGY`       | `strict`                                     | `strict` or `fallback` prompt template                       |
-| `INDEX_DIR`             | `storage/faiss_index`                        | Where the FAISS index is persisted                           |
-| `LOG_DIR`               | `storage/logs`                               | App log + JSONL Q/A trace                                    |
-| `EVAL_DIR`              | `storage/eval_results`                       | Per-run evaluation JSON                                      |
-| `EVAL_DB_PATH`          | `storage/eval_results/evaluations.sqlite3`   | SQLite DB for evaluation run comparison                      |
-| `CHUNK_UNIT`            | `chars`                                      | `chars` or `tokens` (tiktoken-based)                         |
-| `TIKTOKEN_ENCODING`     | `cl100k_base`                                | Encoding used when `CHUNK_UNIT=tokens`                       |
-| `RETRIEVAL_MODE`        | `hybrid`                                     | `dense` or `hybrid` (FAISS + BM25 fused via RRF)             |
-| `HYBRID_CANDIDATE_MULTIPLIER` | `3`                                    | Candidate pool per retriever before fusion                   |
-| `RRF_K`                 | `60`                                         | RRF smoothing constant                                       |
-| `MMR_ENABLED`           | `true`                                       | Diversify the fused pool with MMR                            |
-| `MMR_LAMBDA`            | `0.6`                                        | 1.0 = pure relevance, 0.0 = pure diversity                   |
-| `RERANKER_ENABLED`      | `false`                                      | Enable cross-encoder reranker (downloads model on first use) |
-| `RERANKER_MODEL`        | `cross-encoder/ms-marco-MiniLM-L-6-v2`       | sentence-transformers cross-encoder model id                 |
-| `QUERY_CACHE_ENABLED`   | `true`                                       | Toggle the in-memory LRU                                     |
-| `QUERY_CACHE_SIZE`      | `256`                                        | Max cached responses                                         |
-| `PDF_BACKEND`           | `auto`                                       | `auto` / `pymupdf` / `pypdf`                                 |
-| `RATE_LIMIT_PER_MINUTE` | `0`                                          | Per-IP cap on mutating endpoints. 0 disables.                |
-| `RATE_LIMIT_BURST`      | `20`                                         | Initial bucket size                                          |
-
-Both `top_k` and `score_threshold` can also be overridden per request.
+1. **Academic Paper** (`report/paper.tex`): A 5-page publication-ready LaTeX paper formatted using the NeurIPS 2023 template, outlining all methodologies, findings, and plots.
+2. **Replication Script** (`reproduce.sh`): A single entry point shell script to reproduce all experiments, generate figures, and compile the LaTeX report.
+3. **Experiment Runner** (`run_experiments.py`): Automation sweep script that executes baseline evaluations and plots the visual figures.
+4. **Visual Figures** (`figures/`):
+   - `retrieval_comparison.png`: Baseline comparisons.
+   - `ablation_chunk_size.png`: Chunk size swept evaluations.
+   - `ablation_top_k.png`: Top-$k$ sweeps.
+   - `latency_vs_quality.png`: Latency vs. Quality Pareto Frontier.
+   - `hallucination_analysis.png`: Accuracy vs. confidence under retrieval failures.
 
 ---
 
-## Hallucination reduction — how it works
+## Replication Instructions
 
-1. **Retrieval guard.** After FAISS search, if the top similarity score
-   is below `SCORE_THRESHOLD`, the orchestrator returns
-   *"I don't know based on the provided context."* without ever calling
-   the LLM. This catches out-of-domain questions cheaply and
-   deterministically.
-2. **Strict prompt.** The generator's system prompt explicitly forbids
-   answering from outside context, requires `[#i]` citations, and tells
-   the model to say "I don't know" when the context is insufficient.
-   `temperature=0.0` removes generation noise.
-3. **Source attribution.** Every response carries a `sources` array
-   (rank, score, source path, chunk ID, snippet). The user can verify
-   any claim against the actual passage.
-4. **Post-generation detection.** The answer is compared against the
-   retrieved context. If coverage is too low or sentence-level claims
-   are unsupported, the answer is rejected and replaced with the safe
-   unknown response.
+### Prerequisites
+Make sure you have Python 3.9+ installed. For LaTeX compiling, you need `pdflatex` (e.g., MiKTeX or TeX Live).
 
-Example query flow:
-
-```text
-question
-  -> retrieve top-k chunks with similarity scores
-  -> generate using only retrieved context and a selected prompt strategy
-  -> score confidence from retrieval strength, context coverage, and output shape
-  -> validate grounding and reject unsupported claims
-  -> return answer, citations, confidence explanation, and rejection metadata
-  -> log latency, chunks, scores, confidence, rejection reason, and final answer
-```
-
----
-
-## Evaluation framework
-
-`POST /evaluate` (or `python run.py evaluate`) runs a JSON list of
-`{question, answer, source?}` items end-to-end and emits:
-
-- **Exact Match** — normalized string equality between prediction and
-  reference. Brittle but unambiguous.
-- **Semantic similarity** — cosine similarity between embedding of the
-  prediction and the reference. The right metric for paraphrased
-  free-form answers.
-- **Retrieval accuracy@k** — was the expected source surfaced (or did
-  the reference text appear in any retrieved chunk)? Isolates retrieval
-  errors from generation errors.
-- **Answered rate** — fraction of questions where the system did *not*
-  abstain. Useful for tracking the precision/recall tradeoff of the
-  abstention threshold.
-
-Aggregate + per-question rows are persisted at
-`storage/eval_results/eval-<UTC-timestamp>.json` so you can diff runs
-across model / chunk-size / threshold changes.
-The same run is also stored in SQLite at
-`storage/eval_results/evaluations.sqlite3` with separate run and item
-tables for research comparison.
-
----
-
-## Sample queries
-
-See `examples/sample_queries.md` for in-domain, multi-document, and
-out-of-domain examples with expected outputs.
-
----
-
-## Tests
-
+### Quickstart (Replicate Everything)
+Run the automated shell script:
 ```bash
-pip install pytest
-python -m pytest tests -q                    # fast unit tests
-python -m pytest tests -q -m slow            # full pipeline (loads HF model)
+chmod +x reproduce.sh
+./reproduce.sh
 ```
 
----
+### Manual Execution Steps
 
-## Project layout
-
-```
-RAG-Based AI QA System/
-├── app/
-│   ├── __init__.py
-│   ├── config.py              # env-driven settings
-│   ├── logger.py              # rotating log + JSONL trace
-│   ├── main.py                # FastAPI app + frontend mount
-│   ├── schemas.py             # request/response models
-│   ├── pipeline/
-│   │   ├── ingestion.py
-│   │   ├── chunking.py
-│   │   ├── embeddings.py
-│   │   ├── vector_store.py
-│   │   ├── retriever.py
-│   │   ├── generator.py
-│   │   └── rag.py
-│   └── evaluation/
-│       ├── metrics.py
-│       └── evaluator.py
-├── frontend/                  # served by FastAPI at /
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
-├── data/
-│   ├── docs/                  # example dataset
-│   └── eval/qa_pairs.json     # example eval set
-├── storage/                   # generated at runtime
-│   ├── faiss_index/
-│   ├── logs/
-│   └── eval_results/
-├── examples/sample_queries.md
-├── tests/test_pipeline.py
-├── run.py                     # CLI
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
----
-
-## Production deployment
-
-### Docker
-
-A multi-stage `Dockerfile` is included. The runtime image is `python:3.12-slim`,
-runs as a non-root user, and ships with a built-in `HEALTHCHECK` against
-`/health`.
-
-```bash
-# Build + run with persistent storage (FAISS index, logs, eval results)
-docker compose up --build
-
-# Then open
-#   UI:     http://localhost:8000/
-#   docs:   http://localhost:8000/docs
-#   health: http://localhost:8000/health
-```
-
-The compose file mounts:
-- `./data` → `/app/data` (read-only) — your source docs.
-- `rag-storage` (named volume) → `/app/storage` — persists the FAISS
-  index, query traces, and eval outputs across container restarts.
-
-Override any setting via env vars (or a `.env` file in the same dir as
-`docker-compose.yml`):
-
-```bash
-EMBEDDING_BACKEND=openai LLM_BACKEND=openai OPENAI_API_KEY=sk-... docker compose up
-```
-
-### Production hardening checklist
-
-- **Set `AUTO_INGEST_ON_STARTUP=false`** in production. The Docker
-  image already defaults to false; auto-ingest is a demo convenience.
-- **Restrict `CORS_ORIGINS`** from `*` to your real frontend host(s).
-- **Run multiple workers** behind a load balancer:
-  `uvicorn app.main:app --workers 4 --host 0.0.0.0 --port 8000`.
-  The FAISS index is per-process; if multiple workers ingest, run a
-  single ingestion worker or use a shared store (Redis-backed FAISS,
-  Milvus, etc.).
-- **Persist `storage/`** to durable disk — the FAISS index and JSONL
-  trace live there.
-- **Front the service with TLS** (nginx, Caddy, an ALB) — uvicorn alone
-  shouldn't terminate TLS in production.
-- **Forward `storage/logs/queries.jsonl`** to Loki / Datadog / ELK for
-  retrieval-quality and abstention-rate analytics.
-- **Idempotent ingestion**: chunk IDs are deterministic (`uuid5` of
-  `source path + chunk index`), so re-ingesting the same files is a
-  no-op rather than a duplicate-and-bloat.
-
-### Architectural notes
-
-- **Index scale.** `IndexFlatIP` gives exact cosine search up to ~1M
-  chunks comfortably. Beyond that, swap in `IndexIVFFlat` or `IndexHNSW`
-  — the `FaissVectorStore` boundary is the only file you'd touch.
-- **Concurrency.** The pipeline singleton is constructed once at
-  startup; per-request work runs in a thread pool. Index *writes*
-  (ingestion) take a process-local lock to keep FAISS internals safe.
-- **Observability.** Every Q/A is logged as a single JSONL line with
-  scores and source IDs. Every HTTP request gets an `x-request-id`
-  header for tracing.
-- **Backend swap.** Set `EMBEDDING_BACKEND=openai` and/or
-  `LLM_BACKEND=openai` plus `OPENAI_API_KEY` to upgrade quality without
-  changing any code. The first ingestion after switching embedders
-  rebuilds the FAISS index automatically (dim mismatch is detected).
-
----
-
-## Screenshots
-
-![RAG QA Dashboard overview](docs/images/dashboard-overview.png)
-
-![RAG QA Dashboard metrics and workspace](docs/images/dashboard-metrics-workspace.png)
+1. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Run tests**:
+   ```bash
+   python -m pytest tests -q
+   ```
+3. **Generate evaluation subsets**:
+   ```bash
+   python generate_eval_data.py
+   ```
+4. **Run sweeps and generate plots**:
+   ```bash
+   python run_experiments.py
+   ```
+5. **Compile LaTeX report**:
+   ```bash
+   python report/compile_report.py
+   ```
+   *(If you don't have LaTeX installed locally, you can upload `report/paper.tex` and `report/neurips_2023.sty` directly to Overleaf to generate the PDF).*

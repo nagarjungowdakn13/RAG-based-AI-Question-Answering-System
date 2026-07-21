@@ -1,0 +1,65 @@
+% neurips_2023.sty
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{neurips_2023}[2023/05/23 NeurIPS 2023 formatting]
+
+% Packages
+\RequirePackage{geometry}
+\RequirePackage{helvet}
+\RequirePackage{courier}
+\RequirePackage{selectp}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{graphicx}
+\RequirePackage{booktabs}
+\RequirePackage{microtype}
+\RequirePackage{url}
+\RequirePackage{natbib}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+
+% Margins (NeurIPS standard: 1 inch on all sides, vertical text height 9 inches)
+\geometry{
+  verbose,
+  tmargin=1.0in,
+  bmargin=1.0in,
+  lmargin=1.0in,
+  rmargin=1.0in,
+  height=9.0in,
+  width=6.5in
+}
+
+% Title formatting
+\renewcommand{\maketitle}{%
+  \newpage
+  \null
+  \vskip 2em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bf \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \linesskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+  \end{center}%
+  \par
+  \vskip 1.5em%
+}
+
+% Abstract formatting
+\renewenvironment{abstract}{%
+  \vglue 1em
+  \centerline{\large\bf Abstract}
+  \vspace{0.5em}
+  \begin{quote}
+}{%
+  \end{quote}
+  \vskip 1em
+}
+
+% Paragraph formatting
+\setlength{\parindent}{1.5em}
+\setlength{\parskip}{0.0em}
+
+\end{style}

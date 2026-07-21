@@ -67,7 +67,7 @@ class RAGPipeline:
         self._bm25_version = self.store.version
 
     def _ensure_bm25(self) -> BM25Index | None:
-        if settings.retrieval_mode != "hybrid":
+        if settings.retrieval_mode not in ("hybrid", "bm25"):
             return None
         if self._bm25 is None or self._bm25_version != self.store.version:
             with self._mut:

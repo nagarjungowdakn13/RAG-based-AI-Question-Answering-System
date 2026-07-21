@@ -1,0 +1,1 @@
+This is a distractor document 2 for the HotpotQA evaluation corpus. It talks about generic topics such as weather forecast, cooking recipes, and gardening tips in spring.

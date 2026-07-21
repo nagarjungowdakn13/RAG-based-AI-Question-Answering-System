@@ -338,3 +338,17 @@ def test_health_endpoint_includes_new_fields():
         "retrieval_mode", "cache", "reranker",
     ):
         assert field in body, f"missing /health field: {field}"
+
+
+@pytest.mark.slow
+def test_bm25_retrieval_mode_retrieves_lexical(monkeypatch):
+    from app.pipeline.rag import RAGPipeline
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "retrieval_mode", "bm25")
+    rag = RAGPipeline.instance()
+    rag.ingest([DOCS_DIR])
+    out = rag.retrieve("transformer architecture self-attention")
+    assert out.mode == "bm25"
+    assert len(out.hits) > 0
+    assert "transformer" in out.hits[0].text.lower()

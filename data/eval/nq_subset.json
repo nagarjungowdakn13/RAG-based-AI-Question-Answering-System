@@ -1,0 +1,142 @@
+[
+  {
+    "question": "Who painted the Mona Lisa?",
+    "answer": "Leonardo da Vinci",
+    "sources": [
+      "doc_mona_lisa.txt"
+    ]
+  },
+  {
+    "question": "What is the height of Mount Everest in meters?",
+    "answer": "8,848 meters",
+    "sources": [
+      "doc_mount_everest_nq.txt"
+    ]
+  },
+  {
+    "question": "Who developed the theory of general relativity?",
+    "answer": "Albert Einstein",
+    "sources": [
+      "doc_relativity.txt"
+    ]
+  },
+  {
+    "question": "What is the capital city of Australia?",
+    "answer": "Canberra",
+    "sources": [
+      "doc_canberra.txt"
+    ]
+  },
+  {
+    "question": "In what year did the Titanic sink?",
+    "answer": "1912",
+    "sources": [
+      "doc_titanic.txt"
+    ]
+  },
+  {
+    "question": "Who wrote the play Romeo and Juliet?",
+    "answer": "William Shakespeare",
+    "sources": [
+      "doc_shakespeare.txt"
+    ]
+  },
+  {
+    "question": "What is the chemical symbol for gold?",
+    "answer": "Au",
+    "sources": [
+      "doc_gold_element.txt"
+    ]
+  },
+  {
+    "question": "Which planet is known as the Red Planet?",
+    "answer": "Mars",
+    "sources": [
+      "doc_mars_planet.txt"
+    ]
+  },
+  {
+    "question": "Who was the first president of the United States?",
+    "answer": "George Washington",
+    "sources": [
+      "doc_washington_president.txt"
+    ]
+  },
+  {
+    "question": "What is the longest river in the world?",
+    "answer": "Nile River",
+    "sources": [
+      "doc_nile_river.txt"
+    ]
+  },
+  {
+    "question": "What is the speed of light in vacuum?",
+    "answer": "299,792,458 meters per second",
+    "sources": [
+      "doc_speed_light.txt"
+    ]
+  },
+  {
+    "question": "Who is the author of the Harry Potter books?",
+    "answer": "J.K. Rowling",
+    "sources": [
+      "doc_rowling.txt"
+    ]
+  },
+  {
+    "question": "Which element has the atomic number 1?",
+    "answer": "Hydrogen",
+    "sources": [
+      "doc_hydrogen.txt"
+    ]
+  },
+  {
+    "question": "What is the capital of Spain?",
+    "answer": "Madrid",
+    "sources": [
+      "doc_madrid.txt"
+    ]
+  },
+  {
+    "question": "In which ocean is the Mariana Trench located?",
+    "answer": "Pacific Ocean",
+    "sources": [
+      "doc_mariana.txt"
+    ]
+  },
+  {
+    "question": "Who discovered gravity when an apple fell on his head?",
+    "answer": "Sir Isaac Newton",
+    "sources": [
+      "doc_newton_apple.txt"
+    ]
+  },
+  {
+    "question": "What gas do plants absorb during photosynthesis?",
+    "answer": "Carbon dioxide",
+    "sources": [
+      "doc_photosynthesis.txt"
+    ]
+  },
+  {
+    "question": "Which country is the largest by land area?",
+    "answer": "Russia",
+    "sources": [
+      "doc_russia_country.txt"
+    ]
+  },
+  {
+    "question": "In which city are the headquarters of the United Nations located?",
+    "answer": "New York City",
+    "sources": [
+      "doc_un_hq.txt"
+    ]
+  },
+  {
+    "question": "Who is the founder of Microsoft?",
+    "answer": "Bill Gates",
+    "sources": [
+      "doc_gates_founder.txt"
+    ]
+  }
+]

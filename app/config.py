@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     prompt_strategy: Literal["strict", "fallback"] = "strict"
 
     # Hybrid retrieval (BM25 + dense) + reciprocal rank fusion
-    retrieval_mode: Literal["dense", "hybrid"] = "hybrid"
+    retrieval_mode: Literal["dense", "hybrid", "bm25"] = "hybrid"
     hybrid_candidate_multiplier: int = Field(default=3, ge=1, le=10)
     rrf_k: int = Field(default=60, ge=1, le=1000)
 

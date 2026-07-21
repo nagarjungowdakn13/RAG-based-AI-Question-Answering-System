@@ -1,0 +1,242 @@
+[
+  {
+    "question": "Was Albert Einstein's first wife born before or after him?",
+    "answer": "Mileva Marić was born before Albert Einstein (1875 vs 1879).",
+    "sources": [
+      "doc_einstein.txt",
+      "doc_maric.txt"
+    ]
+  },
+  {
+    "question": "Which AI lab did the co-creator of the Transformer, Ashish Vaswani, co-found in 2022?",
+    "answer": "Adept AI Labs",
+    "sources": [
+      "doc_transformer.txt",
+      "doc_vaswani.txt"
+    ]
+  },
+  {
+    "question": "On what river is the capital of the country where Google DeepMind was founded situated?",
+    "answer": "River Thames",
+    "sources": [
+      "doc_deepmind.txt",
+      "doc_london.txt"
+    ]
+  },
+  {
+    "question": "Which film directed by Christopher Nolan starred the actor who played J. Robert Oppenheimer?",
+    "answer": "Oppenheimer starred Cillian Murphy, who also starred in Inception.",
+    "sources": [
+      "doc_oppenheimer.txt",
+      "doc_nolan.txt"
+    ]
+  },
+  {
+    "question": "Is the author of 'The Hobbit' older or younger than the creator of Narnia?",
+    "answer": "J.R.R. Tolkien (Hobbit, b. 1892) is older than C.S. Lewis (Narnia, b. 1898).",
+    "sources": [
+      "doc_hobbit.txt",
+      "doc_narnia.txt"
+    ]
+  },
+  {
+    "question": "What is the capital of the state where the tech company that created the iPhone is headquartered?",
+    "answer": "Sacramento (California, where Apple is headquartered).",
+    "sources": [
+      "doc_iphone.txt",
+      "doc_california.txt"
+    ]
+  },
+  {
+    "question": "Was the developer of the Python programming language born in the same country as the creator of Linux?",
+    "answer": "No, Guido van Rossum was born in the Netherlands, whereas Linus Torvalds was born in Finland.",
+    "sources": [
+      "doc_python.txt",
+      "doc_linux.txt"
+    ]
+  },
+  {
+    "question": "Which university was attended by both the founders of Google?",
+    "answer": "Stanford University",
+    "sources": [
+      "doc_google.txt",
+      "doc_stanford.txt"
+    ]
+  },
+  {
+    "question": "What is the native language of the country where the designer of the Eiffel Tower was born?",
+    "answer": "French (Gustave Eiffel was born in France).",
+    "sources": [
+      "doc_eiffel.txt",
+      "doc_france.txt"
+    ]
+  },
+  {
+    "question": "Does the company that developed the ChatGPT model have its main headquarters in the capital of the USA?",
+    "answer": "No, OpenAI is based in San Francisco, California, not Washington D.C.",
+    "sources": [
+      "doc_openai.txt",
+      "doc_usa.txt"
+    ]
+  },
+  {
+    "question": "Was the author of the theory of evolution born in the same century as the author of 'Principia Mathematica'?",
+    "answer": "No, Charles Darwin was born in the 19th century (1809), while Isaac Newton published Principia in the 17th century (1687).",
+    "sources": [
+      "doc_evolution.txt",
+      "doc_principia.txt"
+    ]
+  },
+  {
+    "question": "What is the capital of the country where the inventor of the printing press was born?",
+    "answer": "Berlin (Johannes Gutenberg was born in Germany).",
+    "sources": [
+      "doc_printing.txt",
+      "doc_germany.txt"
+    ]
+  },
+  {
+    "question": "Which country is home to the mountain range where the highest peak on Earth is located?",
+    "answer": "Nepal (Home of Mount Everest in the Himalayas).",
+    "sources": [
+      "doc_everest.txt",
+      "doc_nepal.txt"
+    ]
+  },
+  {
+    "question": "What is the official currency of the country where the company that makes the PlayStation is headquartered?",
+    "answer": "Japanese Yen (Sony is headquartered in Japan).",
+    "sources": [
+      "doc_playstation.txt",
+      "doc_japan.txt"
+    ]
+  },
+  {
+    "question": "Was the composer of the 'Moonlight Sonata' born in the same city as the composer of the 'Messiah'?",
+    "answer": "No, Beethoven (Moonlight Sonata) was born in Bonn, whereas Handel (Messiah) was born in Halle.",
+    "sources": [
+      "doc_beethoven.txt",
+      "doc_handel.txt"
+    ]
+  },
+  {
+    "question": "Which space agency launched the telescope that succeeded the Hubble Space Telescope?",
+    "answer": "NASA (along with ESA and CSA) launched the James Webb Space Telescope.",
+    "sources": [
+      "doc_hubble.txt",
+      "doc_jwst.txt"
+    ]
+  },
+  {
+    "question": "What ocean is adjacent to the state where Microsoft was founded?",
+    "answer": "Pacific Ocean (Washington State)",
+    "sources": [
+      "doc_microsoft.txt",
+      "doc_washington.txt"
+    ]
+  },
+  {
+    "question": "Which country hosts the headquarters of the organization that awards the Nobel Prizes?",
+    "answer": "Sweden",
+    "sources": [
+      "doc_nobel.txt",
+      "doc_sweden.txt"
+    ]
+  },
+  {
+    "question": "Was the designer of the first compiler born in the same country as the designer of the Analytical Engine?",
+    "answer": "No, Grace Hopper (first compiler) was born in the USA, while Charles Babbage (Analytical Engine) was born in England.",
+    "sources": [
+      "doc_compiler.txt",
+      "doc_analytical.txt"
+    ]
+  },
+  {
+    "question": "What is the currency of the nation where the Suez Canal is located?",
+    "answer": "Egyptian Pound",
+    "sources": [
+      "doc_suez.txt",
+      "doc_egypt.txt"
+    ]
+  },
+  {
+    "question": "Was the artist who painted 'The Starry Night' from the same country as the painter of 'Guernica'?",
+    "answer": "No, Vincent van Gogh (Starry Night) was Dutch, whereas Pablo Picasso (Guernica) was Spanish.",
+    "sources": [
+      "doc_starry.txt",
+      "doc_guernica.txt"
+    ]
+  },
+  {
+    "question": "What is the capital of the country where the company that produces Spotify is based?",
+    "answer": "Stockholm (Sweden)",
+    "sources": [
+      "doc_spotify.txt",
+      "doc_sweden.txt"
+    ]
+  },
+  {
+    "question": "Did the actor who played Iron Man in the MCU star in the 2023 film 'Oppenheimer'?",
+    "answer": "Yes, Robert Downey Jr. played Lewis Strauss in Oppenheimer.",
+    "sources": [
+      "doc_ironman.txt",
+      "doc_oppenheimer.txt"
+    ]
+  },
+  {
+    "question": "Which ocean border is closest to the headquarters of the European Space Agency?",
+    "answer": "Atlantic Ocean (ESA is headquartered in Paris, France).",
+    "sources": [
+      "doc_esa.txt",
+      "doc_france.txt"
+    ]
+  },
+  {
+    "question": "Is the capital of the country that hosted the 2008 Summer Olympics located on the coast?",
+    "answer": "No, Beijing (China) is not a coastal city.",
+    "sources": [
+      "doc_olympics.txt",
+      "doc_china.txt"
+    ]
+  },
+  {
+    "question": "Which programming language was developed first: the one created by Bjarne Stroustrup or the one by Sun Microsystems?",
+    "answer": "C++ (Bjarne Stroustrup, 1985) was created before Java (Sun Microsystems, 1995).",
+    "sources": [
+      "doc_cpp.txt",
+      "doc_java.txt"
+    ]
+  },
+  {
+    "question": "What is the capital city of the country that spans two continents and contains the Bosporus Strait?",
+    "answer": "Ankara (Turkey)",
+    "sources": [
+      "doc_strait.txt",
+      "doc_turkey.txt"
+    ]
+  },
+  {
+    "question": "Was the discoverer of penicillin born in the same country as the discoverer of radium?",
+    "answer": "No, Alexander Fleming (penicillin) was born in Scotland, while Marie Curie (radium) was born in Poland.",
+    "sources": [
+      "doc_penicillin.txt",
+      "doc_radium.txt"
+    ]
+  },
+  {
+    "question": "What is the name of the river that flows through the capital of Egypt?",
+    "answer": "Nile River (flows through Cairo)",
+    "sources": [
+      "doc_cairo.txt",
+      "doc_nile.txt"
+    ]
+  },
+  {
+    "question": "Was the architect of the Guggenheim Museum in Bilbao born in the USA?",
+    "answer": "Yes, Frank Gehry was born in Canada but is naturalized US and based in USA, or Frank Lloyd Wright designed the NY one. Frank Gehry designed the Bilbao museum.",
+    "sources": [
+      "doc_guggenheim.txt",
+      "doc_gehry.txt"
+    ]
+  }
+]

@@ -86,6 +86,55 @@ class Retriever:
                     stages=stages,
                 )
 
+        if mode == "bm25":
+            if self.bm25 is None or self.bm25.size == 0:
+                return RetrievalResult(hits=[], top_score=0.0, confident=False, mode=mode, stages=stages)
+            
+            candidate_pool_size = max(k * settings.hybrid_candidate_multiplier, k)
+            if settings.reranker_enabled and self.reranker and self.reranker.available:
+                candidate_pool_size = max(
+                    candidate_pool_size, k * settings.reranker_candidate_multiplier
+                )
+            
+            bm25_hits = self.bm25.search(query, top_k=candidate_pool_size)
+            if allowed_rows is not None:
+                bm25_hits = [h for h in bm25_hits if h.row in allowed_rows]
+            
+            hits: list[RetrievalHit] = []
+            for h in bm25_hits:
+                base = self.store.get_hit(h.row)
+                hits.append(
+                    RetrievalHit(
+                        score=float(h.score),
+                        chunk_id=base.chunk_id,
+                        text=base.text,
+                        metadata=base.metadata,
+                    )
+                )
+            
+            rerank_applied = False
+            if (
+                settings.reranker_enabled
+                and self.reranker
+                and self.reranker.available
+                and len(hits) > 1
+            ):
+                hits = self.reranker.rerank(query, hits, top_k=k)
+                rerank_applied = True
+            else:
+                hits = hits[:k]
+            
+            top = hits[0].score if hits else 0.0
+            return RetrievalResult(
+                hits=hits,
+                top_score=top,
+                confident=len(hits) > 0,  # BM25 scores don't align with cosine thresholds, so we check if hits exist
+                mode=mode,
+                rerank_applied=rerank_applied,
+                mmr_applied=False,
+                stages=stages,
+            )
+
         # Stage 1+2: fetch candidates from both retrievers.
         candidate_pool_size = max(k * settings.hybrid_candidate_multiplier, k)
         if settings.reranker_enabled and self.reranker and self.reranker.available:
