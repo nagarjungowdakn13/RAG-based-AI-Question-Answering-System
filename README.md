@@ -101,10 +101,7 @@ Figures displaying the architecture, interactive QA workflow, and live metrics d
 #### 1. RAG System Architecture & Overview
 ![RAG System Architecture & Model Overview](docs/images/dashboard-overview.png)
 
-#### 2. Interactive QA & Citational Grounding Interface
-![Interactive QA Interface](docs/images/dashboard-chat.png)
-
-#### 3. Evaluation & Metrics Workspace
+#### 2. Evaluation & Metrics Workspace
 ![Metrics Workspace](docs/images/dashboard-metrics-workspace.png)
 
 ---
