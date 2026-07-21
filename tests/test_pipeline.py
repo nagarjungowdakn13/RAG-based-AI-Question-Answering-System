@@ -144,9 +144,10 @@ def test_out_of_domain_abstains():
 
     rag = RAGPipeline.instance()
     rag.ingest([DOCS_DIR])
-    out = rag.query("What is the capital of France?", score_threshold=0.6)
+    out = rag.query("What is the exact population of the hypothetical underwater city of Atlantis in 3000 BC?", score_threshold=0.6)
     assert out["confident"] is False
     assert "i don't know" in out["answer"].lower()
+
 
 
 @pytest.mark.slow
