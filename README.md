@@ -23,25 +23,6 @@ The following table summarizes the performance of the retrieval baselines at chu
 
 ---
 
-## Resume Bullet
-
-**Empirical Study of Retrieval Strategies for Multi-Hop QA**  |  [GitHub](https://github.com/nagarjungowdakn13/RAG-based-AI-Question-Answering-System)  |  [Report](file:///d:/RAG-Based%20AI%20QA%20System/report/paper.pdf)
-- Compared BM25, dense, hybrid, and reranker-based retrieval on HotpotQA, measuring answer F1, retrieval recall, and faithfulness.
-- Found hybrid retrieval improved F1 by 1.54 points (up to 12 points in real LLM settings) over dense alone, with the gain concentrated on multi-hop questions requiring 2+ documents.
-- Analyzed hallucination rates when gold context was not retrieved; observed that the LLM still produces a confident answer 42% of the time.
-- Python, PyTorch, FAISS, Pyserini, HuggingFace.
-
----
-
-## Research Questions (RQs)
-
-1. **RQ1 (Retrieval Method)**: How do retrieval choices (lexical vs. dense bi-encoder vs. RRF hybrid vs. Cross-Encoder reranker) affect retrieval recall and downstream answer quality on single-hop vs. multi-hop questions?
-2. **RQ2 (Chunk Size)**: How do chunk size configurations (128, 256, 512 tokens) interact with retrieval recall and generation F1?
-3. **RQ3 (Top-k)**: What is the shape of the diminishing returns curve for top-$k$ candidates ($k \in \{1, 3, 5, 10\}$)?
-4. **RQ4 (Hallucination)**: How often does the LLM produce a confident wrong answer when retrieval fails completely (Recall = 0)?
-
----
-
 ## Key Experimental Findings
 
 ### 1. The Lexical Match Advantage in Multi-Hop
@@ -109,3 +90,46 @@ chmod +x reproduce.sh
    python report/compile_report.py
    ```
    *(If you don't have LaTeX installed locally, you can upload `report/paper.tex` and `report/neurips_2023.sty` directly to Overleaf to generate the PDF).*
+
+---
+
+## Model Architecture & Experimental Figures
+
+### System Architecture & Model Workflow
+Figures displaying the architecture, interactive QA workflow, and live metrics dashboard of the RAG system:
+
+#### 1. RAG System Architecture & Overview
+![RAG System Architecture & Model Overview](docs/images/dashboard-overview.png)
+
+#### 2. Interactive QA & Citational Grounding Interface
+![Interactive QA Interface](docs/images/dashboard-chat.png)
+
+#### 3. Evaluation & Metrics Workspace
+![Metrics Workspace](docs/images/dashboard-metrics-workspace.png)
+
+---
+
+### Empirical Evaluation Figures
+
+All empirical evaluation figures from the benchmark suite (`figures/`):
+
+#### 1. Retrieval Baseline Comparison
+![Retrieval Comparison](figures/retrieval_comparison.png)
+*Comparison of Recall@5, Recall@10, and Answer F1 across HotpotQA (Multi-hop) and NQ-open (Single-hop).*
+
+#### 2. Chunk Size Ablation
+![Ablation Chunk Size](figures/ablation_chunk_size.png)
+*Impact of chunk size (128, 256, 512 tokens) on retrieval recall and generation F1.*
+
+#### 3. Top-k Candidates Sweep
+![Ablation Top-k](figures/ablation_top_k.png)
+*Diminishing returns curve for top-k candidate limits ($k \in \{1, 3, 5, 10\}$).*
+
+#### 4. Latency vs. Quality Pareto Frontier
+![Latency vs Quality](figures/latency_vs_quality.png)
+*Engineering trade-off between p50 query latency (ms) and SQuAD Answer F1.*
+
+#### 5. Hallucination & Faithfulness Analysis
+![Hallucination Analysis](figures/hallucination_analysis.png)
+*Model accuracy versus self-reported confidence under retrieval success vs. failure conditions.*
+
